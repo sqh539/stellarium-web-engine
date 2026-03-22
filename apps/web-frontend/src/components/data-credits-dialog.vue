@@ -54,6 +54,12 @@
       <p>Landscape images by Fabien Chereau</p>
       <p>Constellation lines by Fabien Chereau</p>
       <p>All other graphics by <a href="https://stellarium-labs.com" target="_blank" rel="noopener">Stellarium Labs</a></p>
+      <h3>源代码 / Source Code</h3>
+      <p>
+        本应用基于 <a href="https://github.com/Stellarium/stellarium-web-engine" target="_blank" rel="noopener">Stellarium Web Engine</a>（GNU AGPL v3 许可证）修改发布。<br>
+        依据 GNU AGPL v3 协议第 13 条，本项目完整源代码公开于：<br>
+        <a href="https://github.com/sqh539/stellarium-web-engine" target="_blank" rel="noopener">https://github.com/sqh539/stellarium-web-engine</a>
+      </p>
     </v-card-text>
     <v-card-actions>
       <v-spacer></v-spacer><v-btn text class="blue--text darken-1" @click.native="$store.state.showDataCreditsDialog = false">Close</v-btn>

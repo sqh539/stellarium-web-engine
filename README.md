@@ -1,5 +1,9 @@
-Stellarium Web Engine
-=====================
+Stellarium Web Engine（修改版）
+==============================
+
+> 本项目基于 [Stellarium Web Engine](https://github.com/Stellarium/stellarium-web-engine)（由 Stellarium Labs SRL 开发）修改发布，
+> 依据 [GNU AGPL v3](LICENSE-AGPL-3.0.txt) 许可证开放源代码。
+> 原项目版权归 Stellarium Labs SRL 所有。
 
 About
 -----
