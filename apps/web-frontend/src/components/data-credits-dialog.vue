@@ -54,10 +54,10 @@
       <p>Landscape images by Fabien Chereau</p>
       <p>Constellation lines by Fabien Chereau</p>
       <p>All other graphics by <a href="https://stellarium-labs.com" target="_blank" rel="noopener">Stellarium Labs</a></p>
-      <h3>源代码 / Source Code</h3>
+      <h3>Source Code</h3>
       <p>
-        本应用基于 <a href="https://github.com/Stellarium/stellarium-web-engine" target="_blank" rel="noopener">Stellarium Web Engine</a>（GNU AGPL v3 许可证）修改发布。<br>
-        依据 GNU AGPL v3 协议第 13 条，本项目完整源代码公开于：<br>
+        This application is based on <a href="https://github.com/Stellarium/stellarium-web-engine" target="_blank" rel="noopener">Stellarium Web Engine</a> (GNU AGPL v3 license).<br>
+        In accordance with Section 13 of the GNU AGPL v3, the complete source code is available at:<br>
         <a href="https://github.com/sqh539/stellarium-web-engine" target="_blank" rel="noopener">https://github.com/sqh539/stellarium-web-engine</a>
       </p>
     </v-card-text>

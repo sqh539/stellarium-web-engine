@@ -10,8 +10,7 @@
   <div id="toolbar-image">
     <v-toolbar class="transparent" dense>
       <v-app-bar-nav-icon @click="toggleNavigationDrawer"></v-app-bar-nav-icon>
-      <img class="tbtitle hidden-xs-only" id="stellarium-web-toolbar-logo" src="@/assets/images/logo.svg" width="30" height="30" alt="Stellarium Web Logo"/>
-      <span class="tbtitle hidden-sm-and-down">Stellarium<sup>Web</sup></span>
+      <img src="@/assets/images/xingji-logo.png" height="30" alt="星迹" style="margin-left: 8px;" class="hidden-xs-only"/>
       <v-spacer></v-spacer>
       <target-search></target-search>
       <v-spacer></v-spacer>

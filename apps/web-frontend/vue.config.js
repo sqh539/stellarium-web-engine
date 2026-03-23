@@ -2,6 +2,12 @@ module.exports = {
   runtimeCompiler: true,
   publicPath: process.env.CDN_ENV ? process.env.CDN_ENV : '/',
 
+  devServer: {
+    public: 'localhost:8080',
+    host: '0.0.0.0',
+    disableHostCheck: true,
+  },
+
   chainWebpack: config => {
     // workaround taken from webpack/webpack#6642
     config.output

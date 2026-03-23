@@ -35,6 +35,7 @@ import ViewSettingsDialog from '@/components/view-settings-dialog.vue'
 import PlanetsVisibility from '@/components/planets-visibility.vue'
 import LocationDialog from '@/components/location-dialog.vue'
 import ObservingPanel from '@/components/observing-panel.vue'
+import AboutXingjiDialog from '@/components/about-xingji-dialog.vue'
 
 export default {
   data: function () {
@@ -59,7 +60,8 @@ export default {
         'data-credits-dialog',
         'view-settings-dialog',
         'planets-visibility',
-        'location-dialog'
+        'location-dialog',
+        'about-xingji-dialog'
       ]
       for (const i in this.$stellariumWebPlugins()) {
         const plugin = this.$stellariumWebPlugins()[i]
@@ -70,7 +72,7 @@ export default {
       return res
     }
   },
-  components: { Toolbar, BottomBar, DataCreditsDialog, ViewSettingsDialog, PlanetsVisibility, SelectedObjectInfo, LocationDialog, ProgressBars, ObservingPanel }
+  components: { Toolbar, BottomBar, DataCreditsDialog, ViewSettingsDialog, PlanetsVisibility, SelectedObjectInfo, LocationDialog, ProgressBars, ObservingPanel, AboutXingjiDialog }
 }
 </script>
 
