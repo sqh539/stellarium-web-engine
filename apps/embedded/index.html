@@ -1,0 +1,2072 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>循迹繁星 · 星图</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #000; overflow: hidden; touch-action: none; }
+  #stel-canvas { width: 100vw; height: 100vh; display: block; }
+
+  /* 顶部位置栏 */
+  .top-bar {
+    position: fixed; top: 0; left: 0; right: 0;
+    height: 44px; z-index: 10;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 12px;
+    background: rgba(0,0,0,0.5);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+  .location { color: #ccc; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+  .location .dot { width: 6px; height: 6px; border-radius: 50%; background: #3CD47B; }
+  .tools { display: flex; gap: 8px; }
+  .tool-btn {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: rgba(255,255,255,0.1); border: none;
+    color: #fff; font-size: 16px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .tool-btn.active { background: rgba(123,110,246,0.3); }
+  .tool-btn svg { width: 18px; height: 18px; stroke: #fff; fill: none; stroke-width: 1.8; }
+
+  /* 天体信息弹窗 */
+  .object-popup {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: rgba(11,13,26,0.96);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border-radius: 20px 20px 0 0;
+    padding: 0 16px 24px;
+    transform: translateY(100%);
+    transition: transform 0.35s cubic-bezier(0.32, 0.72, 0, 1);
+    z-index: 20;
+    max-height: 55vh;
+    overflow-y: auto;
+    scrollbar-width: none;
+    touch-action: pan-y;
+  }
+  .object-popup::-webkit-scrollbar { display: none; }
+  .object-popup.show { transform: translateY(0); }
+  .popup-handle {
+    width: 100%; padding: 14px 0; margin: 0;
+    cursor: pointer; touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .popup-handle::before {
+    content: ''; display: block;
+    width: 36px; height: 4px; margin: 0 auto;
+    background: rgba(255,255,255,0.15); border-radius: 2px;
+  }
+  .popup-header { display: flex; align-items: flex-start; gap: 12px; }
+  .popup-titles { flex: 1; min-width: 0; }
+  .popup-name { font-size: 22px; font-weight: 700; color: #fff; line-height: 1.2; }
+  .popup-cn { font-size: 14px; color: #A59BFF; margin-top: 3px; font-weight: 500; }
+  .popup-close {
+    width: 44px; height: 44px; border-radius: 50%;
+    background: rgba(255,255,255,0.08); border: none;
+    color: #9DA3B3; font-size: 20px; cursor: pointer;
+    flex-shrink: 0; margin-top: -4px;
+    display: flex; align-items: center; justify-content: center;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .popup-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .popup-tag { font-size: 11px; padding: 3px 10px; border-radius: 12px; font-weight: 500; }
+  .popup-tag.type { color: #7B6EF6; background: rgba(123,110,246,0.15); }
+  .popup-tag.morpho { color: #3CD47B; background: rgba(60,212,123,0.12); }
+  .popup-tag.spect { color: #62D1DF; background: rgba(98,209,223,0.12); }
+  .popup-aliases { font-size: 12px; color: #5C6278; margin-top: 10px; line-height: 1.5; }
+  .popup-aliases span { color: #9DA3B3; margin-right: 8px; }
+  .popup-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 8px; margin: 14px 0; }
+  .popup-stat { text-align: center; padding: 10px 6px; background: rgba(255,255,255,0.04); border-radius: 10px; }
+  .popup-stat .label { font-size: 10px; color: #5C6278; text-transform: uppercase; letter-spacing: 0.5px; }
+  .popup-stat .value { font-size: 14px; font-weight: 600; color: #fff; margin-top: 3px; }
+  .popup-stat .unit { font-size: 10px; color: #5C6278; font-weight: 400; }
+  /* 已售星星样式 */
+  .sold-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: #E8A838; background: rgba(232,168,56,0.12); padding: 3px 10px; border-radius: 12px; font-weight: 500; }
+  .naming-message { font-size: 13px; color: #C8CAD0; font-style: italic; margin-top: 10px; padding: 10px 12px; background: rgba(123,110,246,0.06); border-radius: 10px; border-left: 3px solid #7B6EF6; line-height: 1.5; }
+
+  /* 我的星星面板 */
+  .my-star-panel {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: rgba(11,13,26,0.96);
+    backdrop-filter: blur(20px);
+    border-radius: 16px 16px 0 0;
+    padding: 16px 16px 32px;
+    transform: translateY(100%);
+    transition: transform 0.3s ease-out;
+    z-index: 25;
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+  .my-star-panel.show { transform: translateY(0); }
+  .panel-title { font-size: 18px; font-weight: 600; color: #fff; margin-bottom: 16px; text-align: center; }
+  .panel-close { position: absolute; top: 16px; right: 16px; background: none; border: none; color: #9DA3B3; font-size: 20px; cursor: pointer; }
+  .phone-input-row { display: flex; gap: 8px; margin-bottom: 16px; }
+  .phone-input {
+    flex: 1; height: 44px; background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1); border-radius: 10px;
+    padding: 0 14px; color: #fff; font-size: 15px; outline: none;
+    font-family: inherit;
+  }
+  .phone-input:focus { border-color: #7B6EF6; }
+  .phone-input::placeholder { color: #5C6278; }
+  .search-btn {
+    height: 44px; padding: 0 20px; background: #7B6EF6; color: #fff;
+    border: none; border-radius: 10px; font-size: 14px; font-weight: 500;
+    cursor: pointer; font-family: inherit;
+  }
+  .star-result { padding: 16px; background: rgba(255,255,255,0.04); border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); }
+  .star-result .star-name { font-size: 18px; font-weight: 600; color: #E8A838; }
+  .star-result .star-original { font-size: 12px; color: #5C6278; margin-top: 2px; }
+  .star-result .star-buyer { font-size: 13px; color: #9DA3B3; margin-top: 8px; }
+  .star-result .star-message { font-size: 13px; color: #9DA3B3; font-style: italic; margin-top: 8px; padding: 8px; background: rgba(123,110,246,0.08); border-radius: 8px; }
+  .star-result .cert-img { width: 100%; margin-top: 12px; border-radius: 8px; }
+  .locate-btn {
+    width: 100%; height: 44px; margin-top: 12px;
+    background: rgba(123,110,246,0.15); color: #7B6EF6;
+    border: 1px solid rgba(123,110,246,0.3); border-radius: 10px;
+    font-size: 14px; font-weight: 500; cursor: pointer; font-family: inherit;
+  }
+  .no-result { text-align: center; color: #5C6278; padding: 24px 0; font-size: 14px; }
+  .loading { text-align: center; color: #9DA3B3; padding: 24px 0; }
+
+  /* 搜索栏 */
+  .search-bar {
+    position: fixed; top: 50px; left: 12px; right: 12px;
+    z-index: 15;
+    display: none;
+  }
+  @supports (padding-top: env(safe-area-inset-top)) {
+    .search-bar { top: calc(50px + env(safe-area-inset-top)); }
+  }
+  .search-bar.show { display: flex; gap: 8px; align-items: center; }
+  .search-close {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: rgba(255,255,255,0.1); border: none;
+    color: #fff; font-size: 18px; cursor: pointer;
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .search-input {
+    flex: 1; height: 40px;
+    background: rgba(11,13,26,0.85);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 20px;
+    padding: 0 16px;
+    color: #fff; font-size: 14px;
+    outline: none; font-family: inherit;
+  }
+  .search-input::placeholder { color: #5C6278; }
+  .search-results {
+    position: absolute; top: 48px; left: 0; right: 0;
+    background: rgba(11,13,26,0.95);
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.08);
+    max-height: 300px;
+    overflow-y: auto;
+  }
+  .search-item {
+    padding: 10px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    cursor: pointer;
+    color: #eee;
+    font-size: 14px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .search-item:active { background: rgba(255,255,255,0.06); }
+  .search-item:last-child { border-bottom: none; }
+  .search-item .si-icon { flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+  .search-item .si-icon.normal { background: rgba(255,255,255,0.06); color: #9DA3B3; }
+  .search-item .si-icon.named { background: rgba(232,168,56,0.15); color: #E8A838; }
+  .search-item .si-info { flex: 1; min-width: 0; }
+  .search-item .si-name { font-size: 14px; color: #fff; }
+  .search-item .si-name.named { color: #E8A838; }
+  .search-item .si-sub { font-size: 11px; color: #5C6278; margin-top: 1px; }
+  .search-item .si-cn { color: #9DA3B3; }
+  .search-item .si-tag { flex-shrink: 0; font-size: 10px; padding: 2px 8px; border-radius: 8px; background: rgba(123,110,246,0.12); color: #A59BFF; }
+
+  /* 底部控制工具栏 — 包装层用于承载滚动指示 */
+  .sky-toolbar-wrap {
+    position: fixed; bottom: 12px; left: 12px; right: 12px;
+    z-index: 15;
+    border-radius: 14px;
+    transition: transform 0.3s ease-out, opacity 0.3s ease-out;
+  }
+  .sky-toolbar-wrap.hidden { opacity: 0; pointer-events: none; transform: translateY(20px); }
+  .sky-toolbar {
+    display: flex; gap: 4px;
+    padding: 8px 6px;
+    background: rgba(11,13,26,0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-radius: 14px;
+    border: 1px solid rgba(255,255,255,0.06);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .sky-toolbar::-webkit-scrollbar { display: none; }
+  /* 右侧渐变 + 箭头：提示还能继续向右滑 */
+  .sky-toolbar-wrap::after {
+    content: '';
+    position: absolute; top: 1px; right: 1px; bottom: 1px;
+    width: 28px;
+    background: linear-gradient(to right, rgba(11,13,26,0), rgba(11,13,26,0.85));
+    border-radius: 0 14px 14px 0;
+    pointer-events: none;
+    opacity: 1;
+    transition: opacity 0.2s ease-out;
+  }
+  .sky-toolbar-wrap.at-end::after { opacity: 0; }
+  .sky-scroll-hint {
+    position: absolute; right: 6px; top: 50%;
+    transform: translateY(-50%);
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: rgba(123,110,246,0.55);
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700; line-height: 1;
+    pointer-events: none;
+    opacity: 1;
+    transition: opacity 0.2s ease-out;
+    animation: scrollHintPulse 1.6s ease-in-out infinite;
+  }
+  .sky-toolbar-wrap.at-end .sky-scroll-hint { opacity: 0; animation: none; }
+  @keyframes scrollHintPulse {
+    0%, 100% { transform: translateY(-50%) translateX(0); opacity: 0.85; }
+    50% { transform: translateY(-50%) translateX(3px); opacity: 1; }
+  }
+  .sky-toggle {
+    flex: 1 0 auto;
+    min-width: 52px;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    padding: 6px 4px;
+    background: none; border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background 0.2s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .sky-toggle:active { background: rgba(255,255,255,0.08); }
+  .sky-toggle .t-icon {
+    width: 28px; height: 28px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.06);
+    transition: background 0.2s, box-shadow 0.2s;
+  }
+  .sky-toggle .t-icon svg { width: 16px; height: 16px; stroke: #8890A4; fill: none; stroke-width: 1.6; transition: stroke 0.2s; }
+  .sky-toggle .t-label { font-size: 9px; color: #5C6278; white-space: nowrap; transition: color 0.2s; }
+  .sky-toggle.on .t-icon { background: rgba(123,110,246,0.25); box-shadow: 0 0 8px rgba(123,110,246,0.3); }
+  .sky-toggle.on .t-icon svg { stroke: #A59BFF; }
+  .sky-toggle.on .t-label { color: #A59BFF; }
+
+  /* 隐藏 overlay */
+  .overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.3);
+    z-index: 19;
+    display: none;
+  }
+  .overlay.show { display: block; }
+
+  /* 适配 safe area */
+  @supports (padding-top: env(safe-area-inset-top)) {
+    .top-bar { padding-top: env(safe-area-inset-top); height: calc(44px + env(safe-area-inset-top)); }
+    .object-popup, .my-star-panel { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+    .sky-toolbar-wrap { bottom: calc(12px + env(safe-area-inset-bottom)); }
+  }
+
+  /* 陀螺仪悬浮按钮 — 半透明指南针，位于数据来源下方 */
+  .gyro-fab {
+    position: fixed; left: 8px; top: 76px;
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    background: rgba(11,13,26,0.42);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.14);
+    z-index: 30; cursor: pointer;
+    padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.2s, box-shadow 0.2s, border-color 0.2s, opacity 0.2s;
+    opacity: 0.72;
+  }
+  .gyro-fab:active { opacity: 1; }
+  .gyro-fab svg { width: 30px; height: 30px; display: block; }
+  .gyro-fab .compass-ring { stroke: rgba(255,255,255,0.85); stroke-width: 1.6; fill: none; transition: stroke 0.2s; }
+  .gyro-fab .compass-tick { stroke: rgba(255,255,255,0.6); stroke-width: 1.4; }
+  .gyro-fab .compass-n { fill: #FF6B6B; }
+  .gyro-fab .compass-s { fill: rgba(255,255,255,0.72); transition: fill 0.2s; }
+  .gyro-fab.on {
+    background: rgba(123,110,246,0.55);
+    border-color: rgba(123,110,246,0.85);
+    box-shadow: 0 0 16px rgba(123,110,246,0.55);
+    opacity: 1;
+  }
+  .gyro-fab.on .compass-ring { stroke: #fff; }
+  .gyro-fab.on .compass-s { fill: #fff; }
+  /* 刷新悬浮按钮 — 复用陀螺仪视觉，位于陀螺仪正下方 */
+  .refresh-fab {
+    position: fixed; left: 8px; top: 132px;
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    background: rgba(11,13,26,0.42);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.14);
+    z-index: 30; cursor: pointer;
+    padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.2s, box-shadow 0.2s, border-color 0.2s, opacity 0.2s;
+    opacity: 0.72;
+  }
+  .refresh-fab:active { opacity: 1; }
+  .refresh-fab svg { width: 26px; height: 26px; display: block; }
+  .refresh-fab .refresh-arrow {
+    stroke: rgba(255,255,255,0.85); stroke-width: 2;
+    fill: none; stroke-linecap: round;
+  }
+  .refresh-fab.loading { opacity: 1; pointer-events: none; }
+  .refresh-fab.loading svg { animation: refresh-spin 0.8s linear infinite; }
+  @keyframes refresh-spin { to { transform: rotate(360deg); } }
+  /* 数据来源弹窗 */
+  .credits-dialog {
+    position: fixed; inset: 0; z-index: 100;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.6);
+  }
+  .credits-dialog.show { display: flex; }
+  .credits-panel {
+    background: rgba(16,18,32,0.97);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px;
+    width: 92%; max-width: 420px; max-height: 78vh;
+    overflow-y: auto; padding: 20px 18px 24px;
+    scrollbar-width: none;
+  }
+  .credits-panel::-webkit-scrollbar { display: none; }
+  .credits-panel h3 { color: #e0e0e0; font-size: 13px; margin: 14px 0 6px; }
+  .credits-panel h3:first-child { margin-top: 0; }
+  .credits-panel p, .credits-panel li { color: #999; font-size: 11px; line-height: 1.6; }
+  .credits-panel ul { padding-left: 16px; margin: 0; }
+  .credits-panel a { color: #7B6EF6; text-decoration: none; }
+  .credits-close {
+    float: right; background: none; border: none; color: #666;
+    font-size: 20px; cursor: pointer; line-height: 1; padding: 0 0 0 12px;
+  }
+  .credits-toggle {
+    display: flex; align-items: center; justify-content: space-between;
+    margin: 4px 0 14px; padding-bottom: 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .credits-toggle .ct-label { font-size: 13px; color: #e0e0e0; font-weight: 500; }
+  .credits-toggle .ct-switch {
+    position: relative; width: 36px; height: 20px;
+    background: rgba(255,255,255,0.1); border-radius: 10px;
+    cursor: pointer; transition: background 0.2s; border: none; padding: 0;
+  }
+  .credits-toggle .ct-switch::after {
+    content: ''; position: absolute; top: 2px; left: 2px;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: #666; transition: transform 0.2s, background 0.2s;
+  }
+  .credits-toggle .ct-switch.on { background: rgba(123,110,246,0.3); }
+  .credits-toggle .ct-switch.on::after { transform: translateX(16px); background: #A59BFF; }
+
+  /* 资源加载进度条 */
+  .progress-bars {
+    position: fixed; top: 52px; right: 10px;
+    display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+    z-index: 5; pointer-events: none; user-select: none;
+  }
+  .progress-item {
+    display: flex; align-items: center; gap: 6px;
+    opacity: 0; transition: opacity 0.5s;
+  }
+  .progress-item.visible { opacity: 0.6; }
+  .progress-item .p-label {
+    font-size: 10px; color: #ccc; white-space: nowrap;
+  }
+  .progress-ring {
+    width: 18px; height: 18px; transform: rotate(-90deg);
+  }
+  .progress-ring .ring-bg {
+    fill: none; stroke: rgba(255,255,255,0.15); stroke-width: 2.5;
+  }
+  .progress-ring .ring-fg {
+    fill: none; stroke: #7B6EF6; stroke-width: 2.5;
+    stroke-linecap: round; transition: stroke-dashoffset 0.3s;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="stel-canvas"></canvas>
+
+<!-- 资源加载进度条 -->
+<div class="progress-bars" id="progress-bars"></div>
+
+<!-- 顶部工具栏 -->
+<div class="top-bar">
+  <div class="location">
+    <span class="dot"></span>
+    <span id="loc-text">定位中...</span>
+  </div>
+  <div class="tools">
+    <button class="tool-btn" id="btn-search" title="搜索">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+    </button>
+    <button class="tool-btn" id="btn-my-star" title="我的星星" style="color: #E8A838;">
+      <svg viewBox="0 0 24 24" fill="#E8A838" stroke="none"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+    </button>
+    <button class="tool-btn" id="btn-credits" title="说明">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v6"/><circle cx="12" cy="16.6" r="0.4" fill="#fff" stroke="none"/></svg>
+    </button>
+  </div>
+</div>
+
+<!-- 搜索栏 -->
+<div class="search-bar" id="search-bar">
+  <input class="search-input" id="search-input" placeholder="搜索天体名称..." autocomplete="off">
+  <button class="search-close" id="search-close">&times;</button>
+  <div class="search-results" id="search-results" style="display:none;"></div>
+</div>
+
+<!-- 陀螺仪悬浮按钮（左上角，数据来源圆点下方） -->
+<button class="gyro-fab" id="btn-gyro" title="陀螺仪" aria-label="开关陀螺仪">
+  <svg viewBox="0 0 24 24">
+    <circle class="compass-ring" cx="12" cy="12" r="9"/>
+    <line class="compass-tick" x1="12" y1="3.5" x2="12" y2="5.2"/>
+    <line class="compass-tick" x1="12" y1="18.8" x2="12" y2="20.5"/>
+    <line class="compass-tick" x1="3.5" y1="12" x2="5.2" y2="12"/>
+    <line class="compass-tick" x1="18.8" y1="12" x2="20.5" y2="12"/>
+    <polygon class="compass-n" points="12,5.5 9.8,12 12,11 14.2,12"/>
+    <polygon class="compass-s" points="12,18.5 9.8,12 12,13 14.2,12"/>
+  </svg>
+</button>
+
+<button class="refresh-fab" id="btn-refresh" title="刷新星图" aria-label="刷新星图">
+  <svg viewBox="0 0 24 24">
+    <path class="refresh-arrow" d="M20 12a8 8 0 1 1-2.34-5.66"/>
+    <polyline class="refresh-arrow" points="20 4 20 8 16 8"/>
+  </svg>
+</button>
+
+<!-- 底部控制工具栏 -->
+<div class="sky-toolbar-wrap" id="sky-toolbar-wrap">
+<div class="sky-toolbar" id="sky-toolbar">
+  <button class="sky-toggle" data-key="constellations" title="星座线">
+    <span class="t-icon"><svg viewBox="0 0 24 24"><circle cx="5" cy="5" r="1.5" fill="currentColor" stroke="none"/><circle cx="19" cy="8" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r="1.5" fill="currentColor" stroke="none"/><path d="M5 5l14 3M19 8l-7 11M12 19L5 5"/></svg></span>
+    <span class="t-label">星座</span>
+  </button>
+  <button class="sky-toggle" data-key="constellation-art" title="星座艺术图">
+    <span class="t-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></span>
+    <span class="t-label">艺术图</span>
+  </button>
+  <button class="sky-toggle" data-key="atmosphere" title="大气层">
+    <span class="t-icon"><svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7z"/><circle cx="12" cy="9" r="2.5" fill="none"/></svg></span>
+    <span class="t-label">大气层</span>
+  </button>
+  <button class="sky-toggle" data-key="landscape" title="地景">
+    <span class="t-icon"><svg viewBox="0 0 24 24"><path d="M2 20l7-12 5 8 3-4 5 8H2z"/></svg></span>
+    <span class="t-label">地景</span>
+  </button>
+  <button class="sky-toggle" data-key="azimuthal" title="地平网格">
+    <span class="t-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3v18"/><path d="M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4" opacity="0.4"/></svg></span>
+    <span class="t-label">地平网格</span>
+  </button>
+  <button class="sky-toggle" data-key="equatorial" title="赤道网格">
+    <span class="t-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="9" ry="4"/><path d="M12 3v18"/></svg></span>
+    <span class="t-label">赤道网格</span>
+  </button>
+  <button class="sky-toggle" data-key="ecliptic" title="黄道">
+    <span class="t-icon"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="10" ry="5" transform="rotate(-23.4 12 12)"/><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/></svg></span>
+    <span class="t-label">黄道</span>
+  </button>
+  <button class="sky-toggle" data-key="dso" title="深空天体">
+    <span class="t-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="7" stroke-dasharray="2 2"/><circle cx="12" cy="12" r="10" stroke-dasharray="1 3"/></svg></span>
+    <span class="t-label">深空天体</span>
+  </button>
+</div>
+<div class="sky-scroll-hint" id="sky-scroll-hint" aria-hidden="true">›</div>
+</div>
+
+<!-- 天体信息弹窗 -->
+<div class="object-popup" id="object-popup">
+  <div class="popup-handle"></div>
+  <div id="popup-content"></div>
+</div>
+
+<!-- 我的星星面板 -->
+<div class="overlay" id="overlay"></div>
+<div class="my-star-panel" id="my-star-panel">
+  <button class="panel-close" id="panel-close">&times;</button>
+  <div class="panel-title">我的星星</div>
+  <div class="phone-input-row">
+    <input class="phone-input" id="phone-input" placeholder="输入手机号查询" type="tel" maxlength="11">
+    <button class="search-btn" id="phone-search-btn">查询</button>
+  </div>
+  <div id="star-result-area"></div>
+</div>
+
+<script src="zh-CN.js?v=20260629"></script>
+<script type="module">
+// 引擎 js/wasm 走 immutable 强缓存，同名覆盖老 App 拿不到新引擎；更新引擎务必递增
+// 此版本号（与 wasmFile 保持一致）强制 WebView 重取。v20260703：cardinal 默认隐藏修复。
+import StelWebEngine from './stellarium-web-engine.js?v=20260703';
+// ========================================
+// 循迹繁星嵌入版引擎 — JS Bridge API
+// ========================================
+
+const XingJi = {
+  // 内部状态
+  _stel: null,
+  _objectSelectedCallback: null,
+  _apiBaseUrl: '',
+
+  // === 公开 API ===
+
+  // 设置观测位置
+  setStellariumLocation(lat, lng) {
+    if (this._stel) {
+      this._stel.core.observer.longitude = lng * Math.PI / 180;
+      this._stel.core.observer.latitude = lat * Math.PI / 180;
+      document.getElementById('loc-text').textContent =
+        lat.toFixed(2) + '\u00b0N, ' + lng.toFixed(2) + '\u00b0E';
+    }
+  },
+
+  // 天体选中回调
+  onObjectSelected(callback) {
+    this._objectSelectedCallback = callback;
+  },
+
+  // 设置 API 基地址
+  setApiBaseUrl(url) {
+    this._apiBaseUrl = url.replace(/\/$/, '');
+  },
+
+  // 陀螺仪状态
+  _gyroEnabled: false,
+  _gyroHandler: null,
+
+  // 开启/关闭陀螺仪
+  async toggleGyro() {
+    if (this._gyroEnabled) {
+      this._stopGyro();
+      return false;
+    }
+    return await this._startGyro();
+  },
+
+  async _startGyro() {
+    // iOS 13+ 需要请求权限
+    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+      try {
+        var permission = await DeviceOrientationEvent.requestPermission();
+        if (permission !== 'granted') {
+          console.warn('Gyro permission denied');
+          return false;
+        }
+      } catch (e) {
+        console.warn('Gyro permission error:', e);
+        return false;
+      }
+    }
+
+    var self = this;
+    var smoothYaw = null;
+    var smoothPitch = null;
+    var yawOffset = null; // iOS：把任意参考系的矩阵方位锚定到真北的恒定偏移（compass 慢速校准）
+    var ALPHA = 0.15; // 滤波系数，越小越平滑
+
+    this._gyroHandler = function(e) {
+      if (!self._stel || e.beta === null || e.alpha === null) return;
+
+      var DEG = Math.PI / 180;
+      var a = e.alpha * DEG;
+      var b = e.beta * DEG;
+      var g = (e.gamma || 0) * DEG;
+      var ca = Math.cos(a), sa = Math.sin(a);
+      var cb = Math.cos(b), sb = Math.sin(b);
+      var cg = Math.cos(g), sg = Math.sin(g);
+
+      // 设备 -Z（视线）在世界 ENU 的方向：用「原始欧拉角」R=Rz(α)·Rx(β)·Ry(γ) 构造。
+      // α 与 γ 同源自洽 → β≈90° 万向锁处两者跳变互相抵消，方位连续不抖；抬头时也不翻转。
+      var lx = -(ca*sg + sa*sb*cg);      // East
+      var ly = ca*sb*cg - sa*sg;         // North
+      var lz = -cb * cg;                 // Up
+      if (lz > 1) lz = 1; else if (lz < -1) lz = -1;
+      var pitch = Math.asin(lz);                 // 地平=0 天顶=π/2
+      var matrixYaw = Math.atan2(lx, ly);        // 视线方位（北=0 东=π/2 顺时针）
+
+      // yaw（方位角）
+      var yaw;
+      if (typeof e.webkitCompassHeading === 'number') {
+        // iOS：e.alpha 不参考真北且会缓慢漂移，矩阵方位处于「任意参考系」，需用罗盘锚定真北。
+        // 但 compassHeading 只在接近地平线时≈视线方位（抬头>30° 设备顶端转到身后，它会翻 180°）。
+        // 故仅在 |pitch| 小的可靠区，用慢速低通校准「任意系→真北」的恒定偏移；平时矩阵方位+该偏移。
+        var compassYaw = e.webkitCompassHeading * DEG;   // 真北顺时针
+        var cand = compassYaw - matrixYaw;
+        if (yawOffset === null) {
+          yawOffset = cand;
+        } else if (Math.abs(pitch) < 20 * DEG) {
+          var dO = cand - yawOffset;
+          if (dO > Math.PI) dO -= 2 * Math.PI;
+          if (dO < -Math.PI) dO += 2 * Math.PI;
+          yawOffset += 0.05 * dO;   // 慢速校正，吸收漂移又不引入抖动
+        }
+        yaw = matrixYaw + yawOffset;
+      } else {
+        // Android：deviceorientationabsolute 的 α 已参考真磁北，矩阵方位即真方位
+        yaw = matrixYaw;
+      }
+
+      if (smoothYaw === null) {
+        smoothYaw = yaw;
+        smoothPitch = pitch;
+      } else {
+        // 处理 yaw 在 ±π 附近的环绕
+        var dYaw = yaw - smoothYaw;
+        if (dYaw > Math.PI) dYaw -= 2 * Math.PI;
+        if (dYaw < -Math.PI) dYaw += 2 * Math.PI;
+        smoothYaw += ALPHA * dYaw;
+        // 归一化到 [-π, π]
+        if (smoothYaw > Math.PI) smoothYaw -= 2 * Math.PI;
+        if (smoothYaw < -Math.PI) smoothYaw += 2 * Math.PI;
+        smoothPitch += ALPHA * (pitch - smoothPitch);
+      }
+
+      self._stel.core.observer.yaw = smoothYaw;
+      self._stel.core.observer.pitch = smoothPitch;
+    };
+    // Android Chrome 上 deviceorientation 的 alpha 是相对的；用 absolute 版才参考真磁北
+    this._gyroEvent = ('ondeviceorientationabsolute' in window)
+      ? 'deviceorientationabsolute' : 'deviceorientation';
+    window.addEventListener(this._gyroEvent, this._gyroHandler, true);
+
+    // 陀螺仪开启时：完全拦截 canvas 上的 touch 事件（避免引擎把双指中心位置当作 pan 拖动导致弹跳）
+    // 双指 pinch 缩放由本 JS 层根据手指间距变化直接改写 stel.core.fov 实现
+    var canvas = document.getElementById('stel-canvas');
+    var MIN_FOV_RAD = 0.5 * Math.PI / 180;     // 最小 0.5°
+    var MAX_FOV_RAD = 120 * Math.PI / 180;     // 最大 120°
+    var pinchState = null;
+    function getTouchDist(touches) {
+      var dx = touches[0].clientX - touches[1].clientX;
+      var dy = touches[0].clientY - touches[1].clientY;
+      return Math.hypot(dx, dy);
+    }
+    this._gyroTouchBlocker = function(e) {
+      e.stopPropagation();
+      e.preventDefault();
+      if (!self._stel) return;
+
+      if (e.type === 'touchstart' || e.type === 'touchmove') {
+        if (e.touches.length === 2) {
+          var d = getTouchDist(e.touches);
+          if (e.type === 'touchstart' || !pinchState) {
+            // 进入 pinch：以当前间距和当前 fov 作为基准
+            pinchState = { baseDist: d, baseFov: self._stel.core.fov };
+          } else if (pinchState && pinchState.baseDist > 1) {
+            // 手指拉开 → 间距变大 → scale > 1 → fov 减小 → 放大
+            var scale = d / pinchState.baseDist;
+            if (scale > 0.05 && scale < 20) {
+              var newFov = pinchState.baseFov / scale;
+              if (newFov < MIN_FOV_RAD) newFov = MIN_FOV_RAD;
+              if (newFov > MAX_FOV_RAD) newFov = MAX_FOV_RAD;
+              self._stel.core.fov = newFov;
+            }
+          }
+        } else {
+          pinchState = null;
+        }
+      } else if (e.type === 'touchend' || e.type === 'touchcancel') {
+        if (e.touches.length < 2) pinchState = null;
+      }
+    };
+    var blockerOpts = { capture: true, passive: false };
+    canvas.addEventListener('touchstart', this._gyroTouchBlocker, blockerOpts);
+    canvas.addEventListener('touchmove', this._gyroTouchBlocker, blockerOpts);
+    canvas.addEventListener('touchend', this._gyroTouchBlocker, blockerOpts);
+    canvas.addEventListener('touchcancel', this._gyroTouchBlocker, blockerOpts);
+
+    this._gyroEnabled = true;
+    return true;
+  },
+
+  _stopGyro() {
+    if (this._gyroHandler) {
+      window.removeEventListener(this._gyroEvent || 'deviceorientation', this._gyroHandler, true);
+      this._gyroHandler = null;
+    }
+    if (this._gyroTouchBlocker) {
+      var canvas = document.getElementById('stel-canvas');
+      var opts = { capture: true };
+      canvas.removeEventListener('touchstart', this._gyroTouchBlocker, opts);
+      canvas.removeEventListener('touchmove', this._gyroTouchBlocker, opts);
+      canvas.removeEventListener('touchend', this._gyroTouchBlocker, opts);
+      canvas.removeEventListener('touchcancel', this._gyroTouchBlocker, opts);
+      this._gyroTouchBlocker = null;
+    }
+    this._gyroEnabled = false;
+  },
+
+  // 搜索天体（skysources 不要求签名，直接 fetch 以兼容 HTTP 局域网环境）
+  async searchStar(keyword) {
+    var url = this._apiBaseUrl + '/api/v1/skysources/?q=' + encodeURIComponent(keyword) + '&limit=10';
+    if (window._xjIsPureMode && window._xjIsPureMode()) url += '&pure=1';
+    var resp = await fetch(url);
+    var json = await resp.json();
+    return json.data || json;
+  },
+
+  // 查询我的星星
+  async queryMyStar(phone) {
+    var url = this._apiBaseUrl + '/api/v1/star-naming?phone=' + encodeURIComponent(phone);
+    var resp = await signedFetch(url);
+    return await resp.json();
+  }
+};
+
+// === API 签名工具 ===
+var APP_SIGN_SECRET = 'change-me-in-production-32chars!';
+
+function generateNonce() {
+  var chars = '0123456789abcdef';
+  var nonce = '';
+  for (var i = 0; i < 16; i++) {
+    nonce += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return nonce;
+}
+
+function bytesToHex(buffer) {
+  return Array.from(new Uint8Array(buffer))
+    .map(function(b) { return b.toString(16).padStart(2, '0'); })
+    .join('');
+}
+
+async function sha256Hex(str) {
+  var data = new TextEncoder().encode(str);
+  var hash = await crypto.subtle.digest('SHA-256', data);
+  return bytesToHex(hash);
+}
+
+async function hmacSha256Hex(message, secret) {
+  var enc = new TextEncoder();
+  var key = await crypto.subtle.importKey(
+    'raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+  );
+  var sig = await crypto.subtle.sign('HMAC', key, enc.encode(message));
+  return bytesToHex(sig);
+}
+
+async function signedFetch(url, method) {
+  method = method || 'GET';
+  var fullPath, queryString;
+  try {
+    var parsed = new URL(url, window.location.origin);
+    fullPath = parsed.pathname;
+    queryString = parsed.search ? parsed.search.substring(1) : '';
+  } catch(e) {
+    var questionIdx = url.indexOf('?');
+    fullPath = questionIdx >= 0 ? url.substring(0, questionIdx) : url;
+    queryString = questionIdx >= 0 ? url.substring(questionIdx + 1) : '';
+  }
+
+  var sortedQuery = queryString ? queryString.split('&').sort().join('&') : '';
+  var ts = Math.floor(Date.now() / 1000).toString();
+  var nonce = generateNonce();
+  var bodyHash = await sha256Hex('');
+
+  var stringToSign = [method, fullPath, sortedQuery, bodyHash, ts, nonce].join('\n');
+  var sign = await hmacSha256Hex(stringToSign, APP_SIGN_SECRET);
+
+  return fetch(url, {
+    method: method,
+    headers: {
+      'X-Xingji-Ts': ts,
+      'X-Xingji-Nonce': nonce,
+      'X-Xingji-Sign': sign
+    }
+  });
+}
+
+// === Helper: 安全创建 DOM 元素 ===
+function createTextEl(tag, className, text) {
+  var el = document.createElement(tag);
+  if (className) el.className = className;
+  el.textContent = text;
+  return el;
+}
+
+// === UI 交互逻辑 ===
+
+// 我的星星面板
+document.getElementById('btn-my-star').addEventListener('click', function() {
+  document.getElementById('my-star-panel').classList.add('show');
+  document.getElementById('overlay').classList.add('show');
+  document.getElementById('object-popup').classList.remove('show');
+  clearViewOffset();
+});
+
+document.getElementById('panel-close').addEventListener('click', closeMyStarPanel);
+document.getElementById('overlay').addEventListener('click', closeMyStarPanel);
+
+function closeMyStarPanel() {
+  document.getElementById('my-star-panel').classList.remove('show');
+  document.getElementById('overlay').classList.remove('show');
+}
+
+// 手机号查询 — 使用安全 DOM 方法构建结果
+document.getElementById('phone-search-btn').addEventListener('click', async function() {
+  var phone = document.getElementById('phone-input').value.trim();
+  if (!phone) return;
+
+  var area = document.getElementById('star-result-area');
+  area.textContent = '';
+  var loadingEl = createTextEl('div', 'loading', '查询中...');
+  area.appendChild(loadingEl);
+
+  try {
+    var result = await XingJi.queryMyStar(phone);
+    area.textContent = '';
+
+    if (result.code === 'OK' && result.data) {
+      var d = result.data;
+      var wrapper = document.createElement('div');
+      wrapper.className = 'star-result';
+
+      wrapper.appendChild(createTextEl('div', 'star-name', d.customName));
+      wrapper.appendChild(createTextEl('div', 'star-original', d.starPrimaryName));
+      wrapper.appendChild(createTextEl('div', 'star-buyer', '买家：' + d.buyerName));
+
+      if (d.message) {
+        var msgEl = createTextEl('div', 'star-message', '"' + d.message + '"');
+        wrapper.appendChild(msgEl);
+      }
+
+      if (d.certificateUrl) {
+        var img = document.createElement('img');
+        img.className = 'cert-img';
+        img.src = d.certificateUrl;
+        img.alt = '电子证书';
+        wrapper.appendChild(img);
+      } else {
+        var certPending = document.createElement('div');
+        certPending.style.cssText = 'color:#5C6278;font-size:12px;margin-top:8px;';
+        certPending.textContent = '证书制作中';
+        wrapper.appendChild(certPending);
+      }
+
+      var locBtn = document.createElement('button');
+      locBtn.className = 'locate-btn';
+      locBtn.textContent = '定位到该星星';
+      locBtn.addEventListener('click', function() { locateStarOnMap(d.starPrimaryName); });
+      wrapper.appendChild(locBtn);
+
+      area.appendChild(wrapper);
+    } else {
+      area.appendChild(createTextEl('div', 'no-result', '未找到与该手机号关联的星星'));
+    }
+  } catch (e) {
+    area.textContent = '';
+    area.appendChild(createTextEl('div', 'no-result', '查询失败，请稍后重试'));
+  }
+});
+
+function locateStarOnMap(starName) {
+  closeMyStarPanel();
+  if (!XingJi._stel) return;
+  if (window._xjAllowPopup) window._xjAllowPopup();
+  // 我的星星定位：天空卡片遵循「星体铭牌」开关——开关关闭(纯净)时带 pure=1，卡片只显示
+  // 标准天文名；开启时才显示命名别名。保持与全局开关一致（「我的星星」面板本身仍按手机号
+  // 查询展示用户自己起的名字，不受此影响）。
+  var pureParam = (window._xjIsPureMode && window._xjIsPureMode()) ? '?pure=1' : '';
+  var url = XingJi._apiBaseUrl + '/api/v1/skysources/name/' + encodeURIComponent(starName) + pureParam;
+  fetch(url)
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(apiData) {
+      // 离屏星 getObj 返回 null（引擎不 force-load 未加载瓦片），裸 getObj 会让定位静默失败。
+      // 复用 selectSkySource：注入 match=starName 让它先尝试视场内已加载的引擎对象，找不到再
+      // 用 API 的 model_data 走 createObj 坐标兜底导航过去。API 失败时退回纯 getObj。
+      if (apiData) {
+        if (!apiData.match) apiData.match = starName;
+        selectSkySource(apiData);
+        return;
+      }
+      var obj = XingJi._stel.getObj(starName);
+      if (obj) {
+        XingJi._stel.core.selection = obj;
+        XingJi._stel.pointAndLock(obj);
+        applyViewOffsetForPopup();
+      }
+    })
+    .catch(function() {});
+}
+
+// 弹窗显示时，缩小 canvas 高度让引擎自动将天体居中到卡片上方的可见区域
+function applyViewOffsetForPopup() {
+  // 等弹窗渲染后获取实际高度
+  requestAnimationFrame(function() {
+    requestAnimationFrame(function() {
+      var popup = document.getElementById('object-popup');
+      var cardH = popup.offsetHeight || 0;
+      if (cardH > 0) {
+        document.getElementById('stel-canvas').style.height = 'calc(100vh - ' + cardH + 'px)';
+      }
+    });
+  });
+}
+
+function clearViewOffset() {
+  document.getElementById('stel-canvas').style.height = '100vh';
+}
+
+// 搜索栏
+var searchOpen = false;
+function openSearch() {
+  searchOpen = true;
+  document.getElementById('search-bar').classList.add('show');
+  document.getElementById('btn-search').classList.add('active');
+  document.getElementById('search-input').focus();
+}
+function closeSearch() {
+  searchOpen = false;
+  document.getElementById('search-bar').classList.remove('show');
+  document.getElementById('btn-search').classList.remove('active');
+  document.getElementById('search-results').style.display = 'none';
+  document.getElementById('search-input').value = '';
+}
+document.getElementById('btn-search').addEventListener('click', function() {
+  if (searchOpen) closeSearch(); else openSearch();
+});
+document.getElementById('search-close').addEventListener('click', closeSearch);
+document.getElementById('stel-canvas').addEventListener('click', function() {
+  if (searchOpen) closeSearch();
+});
+
+var searchTimer;
+document.getElementById('search-input').addEventListener('input', function(e) {
+  clearTimeout(searchTimer);
+  var q = e.target.value.trim();
+  if (q.length < 2) {
+    document.getElementById('search-results').style.display = 'none';
+    return;
+  }
+  searchTimer = setTimeout(async function() {
+    try {
+      var results = await XingJi.searchStar(q);
+      var container = document.getElementById('search-results');
+      container.textContent = '';
+
+      if (results && results.length > 0) {
+        results.forEach(function(r) {
+          var matchName = r.match || '';
+          // 解析别名：已售星星的 short_name 格式为 "别名（原名）"，据此判定已命名
+          // （不能用 naming_message——买家可能没留寄语，寄语为空不代表未命名）
+          var alias = '';
+          if (r.short_name) {
+            var parenIdx = r.short_name.indexOf('\uff08');
+            if (parenIdx < 0) parenIdx = r.short_name.indexOf('(');
+            if (parenIdx > 0) alias = r.short_name.substring(0, parenIdx).trim();
+          }
+          var isNamed = !!alias;
+
+          var item = document.createElement('div');
+          item.className = 'search-item';
+
+          // 图标
+          var icon = document.createElement('div');
+          icon.className = 'si-icon ' + (isNamed ? 'named' : 'normal');
+          icon.textContent = isNamed ? '\u2605' : '\u2606';
+          item.appendChild(icon);
+
+          // 信息区
+          var info = document.createElement('div');
+          info.className = 'si-info';
+          if (isNamed) {
+            var nameEl = createTextEl('div', 'si-name named', alias);
+            info.appendChild(nameEl);
+            var subEl = createTextEl('div', 'si-sub', cleanName(matchName));
+            info.appendChild(subEl);
+          } else {
+            var nameEl2 = createTextEl('div', 'si-name', cleanName(matchName));
+            info.appendChild(nameEl2);
+            if (r.cn_name) {
+              info.appendChild(createTextEl('div', 'si-sub si-cn', r.cn_name));
+            }
+          }
+          item.appendChild(info);
+
+          // 类型标签
+          if (r.types && r.types[0]) {
+            item.appendChild(createTextEl('span', 'si-tag', getTypeCn(r.types[0])));
+          }
+
+          item.addEventListener('click', function() {
+            closeSearch();
+            selectSkySource(r);
+          });
+          container.appendChild(item);
+        });
+        container.style.display = 'block';
+      } else {
+        var noResult = document.createElement('div');
+        noResult.className = 'search-item';
+        noResult.style.cssText = 'color:#5C6278;justify-content:center;';
+        noResult.textContent = '无搜索结果';
+        container.appendChild(noResult);
+        container.style.display = 'block';
+      }
+    } catch (e) {
+      console.error('Search error:', e);
+    }
+  }, 300);
+});
+
+// 选中天体：先在引擎中查找，找不到则用 API 数据动态创建
+// _pendingApiData: 搜索列表点击时，缓存 API 数据供弹窗直接使用
+var _pendingApiData = null;
+
+function selectSkySource(skySource) {
+  if (!XingJi._stel) return;
+  if (window._xjAllowPopup) window._xjAllowPopup();
+  var stel = XingJi._stel;
+  // 搜索结果自带完整 API 数据，缓存供弹窗使用（避免二次请求）
+  _pendingApiData = skySource;
+
+  // 尝试用 names 数组中的名称在引擎中查找
+  var obj = null;
+  var names = skySource.names;
+  if (names && Array.isArray(names)) {
+    for (var i = 0; i < names.length && !obj; i++) {
+      obj = stel.getObj(names[i]);
+    }
+  }
+  if (!obj && skySource.match) {
+    obj = stel.getObj(skySource.match);
+  }
+  // 引擎中找不到 → 用 API 返回的 model + model_data 动态创建
+  if (!obj && skySource.model && skySource.model_data) {
+    obj = stel.createObj(skySource.model, skySource);
+    stel.core.dsos.add(obj);
+  }
+  if (obj) {
+    stel.core.selection = obj;
+    stel.pointAndLock(obj);
+    applyViewOffsetForPopup();
+  }
+}
+
+// === 天体类型中文映射 ===
+var TYPE_CN = {
+  'G': '星系', 'LSB': '低表面亮度星系', 'AGN': '活动星系核', 'SyG': '赛弗特星系',
+  'Sy1': 'I 型赛弗特星系', 'Sy2': 'II 型赛弗特星系', 'BLL': '蝎虎 BL 天体',
+  'QSO': '类星体', 'EmG': '发射线星系', 'SBG': '星暴星系', 'BiC': '亮中心星系',
+  'GiG': '星系群中的星系', 'GiC': '星系团中的星系', 'HII': 'HII 区', 'IG': '相互作用星系',
+  'PaG': '星系对', 'GiP': '星系对成员', 'GrG': '星系群', 'ClG': '星系团', 'SCG': '超星系团',
+  'Cl*': '疏散星团', 'GlC': '球状星团', 'As*': '星协', 'OpC': '疏散星团',
+  'Neb': '星云', 'PN': '行星状星云', 'SNR': '超新星遗迹', 'RNe': '反射星云',
+  'DN': '暗星云', 'EmN': '发射星云',
+  '*': '恒星', '**': '双星', 'V*': '变星', 'Pu*': '脉冲星', 'WD*': '白矮星',
+  'bL*': '蓝巨星', 'rG*': '红巨星', 'SG*': '超巨星', 'WR*': 'Wolf-Rayet 星',
+  'Ce*': '造父变星', 'RR*': '天琴 RR 变星', 'Mi*': '米拉变星',
+  'Pl': '行星', 'DW': '矮行星', 'Mo': '卫星', 'As': '小行星', 'Co': '彗星',
+  'SS*': '太阳系天体', 'Sun': '太阳', 'Moo': '月球',
+  'Con': '星座', 'dso': '深空天体', 'ISt': '星际物质'
+};
+var MORPHO_CN = {
+  'E': '椭圆星系', 'SB': '棒旋星系', 'SAB': '中间旋涡星系', 'SA': '旋涡星系',
+  'S0': '透镜状星系', 'S': '旋涡星系', 'Im': '不规则星系', 'dSph': '矮球状星系', 'dE': '矮椭圆星系'
+};
+// 天文常数
+var ERFA_AULT = 499.004782;
+var ERFA_DAYSEC = 86400.0;
+var ERFA_DJY = 365.25;
+var ERFA_DAU = 149597870000;
+
+function getTypeCn(otype) { return TYPE_CN[otype] || otype || ''; }
+function getMorphoCn(morpho) {
+  if (!morpho) return '';
+  for (var m in MORPHO_CN) { if (morpho.startsWith(m)) return MORPHO_CN[m]; }
+  return morpho;
+}
+function formatDistance(d) {
+  if (!d || isNaN(d)) return null;
+  var ly = d * ERFA_AULT / ERFA_DAYSEC / ERFA_DJY;
+  if (ly >= 0.1) return { value: ly.toFixed(ly >= 100 ? 0 : 2), unit: '光年' };
+  if (d >= 0.1) return { value: d.toFixed(2), unit: 'AU' };
+  var meter = d * ERFA_DAU;
+  if (meter >= 1000) return { value: (meter / 1000).toFixed(0), unit: 'km' };
+  return { value: meter.toFixed(0), unit: 'm' };
+}
+
+// 去掉 SIMBAD 名称前缀后再显示：NAME=通用名、*=恒星、**=双星、V*=变星。
+// 保留 M / NGC / IC / Cl / HD 等有意义的星表编号（如 'M 45'、'Cl Melotte 22' 不动）。
+// 注意：查 ZH_CN 翻译表时仍要用原始名（表里含带 'NAME ' 前缀的 key），只在「显示」时清洗。
+function cleanName(s) {
+  if (!s || typeof s !== 'string') return s;
+  return s.replace(/^(NAME|V\*|\*\*|\*)\s+/, '').trim();
+}
+
+// 翻译天体名用于显示：先按原始名查表（表里含带 'NAME ' 前缀的 key），命中即返回中文；
+// 否则按去前缀名再查一次；都没命中则返回去前缀后的英文（至少不显示 'NAME ' 前缀）。
+function translateName(s) {
+  if (!s || typeof s !== 'string') return s;
+  if (typeof ZH_CN === 'undefined') return cleanName(s);
+  return ZH_CN[s] || ZH_CN[cleanName(s)] || cleanName(s);
+}
+
+// === 天体信息弹窗 ===
+// API 数据缓存：key=天体名, value=apiData
+var _apiCache = {};
+var _popupTimer = null;
+var _popupSeq = 0; // 序列号，防止异步回调覆盖新弹窗
+
+function showObjectPopup(obj) {
+  var container = document.getElementById('popup-content');
+  container.textContent = '';
+  var seq = ++_popupSeq;
+
+  var names = obj.designations();
+  var mainName = obj.short_name || (names && names[0]) || 'Unknown';
+
+  document.getElementById('object-popup').classList.add('show');
+  document.getElementById('object-popup').classList.remove('collapsed');
+  document.getElementById('object-popup').style.transform = '';   // 新选中 → 恢复完整展开态
+  document.getElementById('sky-toolbar-wrap').classList.add('hidden');
+
+  // 1) 如果有来自搜索列表的待用数据，直接渲染
+  if (_pendingApiData) {
+    var apiData = _pendingApiData;
+    _pendingApiData = null;
+    _apiCache[mainName] = apiData;
+    renderPopupContent(container, obj, names, mainName, apiData);
+    return;
+  }
+
+  // 2) 如果缓存中有，直接用
+  if (_apiCache[mainName]) {
+    renderPopupContent(container, obj, names, mainName, _apiCache[mainName]);
+    return;
+  }
+
+  // 3) 先用引擎数据快速显示，然后异步获取 API 数据
+  renderPopupContent(container, obj, names, mainName, null);
+
+  lookupSkySourceByNames(names).then(function(apiData) {
+    _apiCache[mainName] = apiData;
+    // 确认弹窗仍然显示的是同一个天体（用序列号防竞态）
+    if (seq === _popupSeq) {
+      container.textContent = '';
+      renderPopupContent(container, obj, names, mainName, apiData);
+    }
+  }).catch(function() {});
+
+  if (_popupTimer) clearInterval(_popupTimer);
+  _popupTimer = setInterval(function() {
+    var sel = XingJi._stel && XingJi._stel.core.selection;
+    if (!sel) { clearInterval(_popupTimer); _popupTimer = null; }
+  }, 2000);
+}
+
+// 星体铭牌开关切换后调用：清弹窗缓存并按新的纯净模式状态刷新当前卡片。
+// _apiCache/_pendingApiData 按天体名缓存、不含 pure 状态，首次取数据时的 pure 状态会被
+// 焊死；不清缓存会导致「关开关后已看过的星仍显示别名」，开关像失效。本函数挂在 window 上
+// 供底部非 module 脚本的开关处理器跨作用域调用（主脚本是 type=module）。
+window._xjRefreshAfterBadgeToggle = function() {
+  _apiCache = {};
+  _pendingApiData = null;
+  var sel = XingJi._stel && XingJi._stel.core.selection;
+  var popup = document.getElementById('object-popup');
+  if (sel && popup && popup.classList.contains('show')) {
+    showObjectPopup(sel);   // 重新拉取 → 用当前 pure 状态渲染
+  }
+};
+
+// 尝试用多个名称依次查询 API
+function lookupSkySourceByNames(names) {
+  if (!names || !names.length) return Promise.reject();
+  var pureParam = (window._xjIsPureMode && window._xjIsPureMode()) ? '?pure=1' : '';
+  function tryName(idx) {
+    if (idx >= names.length || idx >= 3) return Promise.reject();
+    var url = XingJi._apiBaseUrl + '/api/v1/skysources/name/' + encodeURIComponent(names[idx]) + pureParam;
+    return fetch(url).then(function(r) {
+      if (!r.ok) throw new Error(r.status);
+      return r.json();
+    }).catch(function() {
+      return tryName(idx + 1);
+    });
+  }
+  return tryName(0);
+}
+
+function renderPopupContent(container, obj, names, mainName, apiData) {
+  var modelData = apiData ? apiData.model_data : null;
+
+  // 解析已售别名：已命名星星 short_name 格式为 "别名（原名）"，据此判定是否已命名
+  // （不能用 naming_message——买家可能没留寄语，寄语为空不代表未命名）
+  var alias = '';
+  var origName = apiData ? (apiData.match || mainName) : mainName;
+  // 显示用去 SIMBAD 前缀（NAME/*/V* 等）；查 ZH_CN 翻译表仍用原始名（表里含带前缀 key）。
+  var displayName = cleanName(origName);
+  if (apiData && apiData.short_name) {
+    var pi = apiData.short_name.indexOf('\uff08');
+    if (pi < 0) pi = apiData.short_name.indexOf('(');
+    if (pi > 0) alias = apiData.short_name.substring(0, pi).trim();
+  }
+  var isNamed = !!alias;
+  // 中文名优先级：① 后台 cn_name ② zh-CN.js 表里 origName/mainName 的映射 ③ 不显示中文行
+  var cnName = (apiData && apiData.cn_name) || '';
+  if (!cnName && typeof ZH_CN !== 'undefined') {
+    cnName = ZH_CN[origName] || ZH_CN[cleanName(origName)] ||
+             ZH_CN[mainName] || ZH_CN[cleanName(mainName)] || '';
+  }
+
+  // Header
+  var header = document.createElement('div');
+  header.className = 'popup-header';
+  var titles = document.createElement('div');
+  titles.className = 'popup-titles';
+
+  if (alias) {
+    // 已售星星：别名为主标题(金色)，原名为副标题
+    var aliasEl = createTextEl('div', 'popup-name', alias);
+    aliasEl.style.color = '#E8A838';
+    titles.appendChild(aliasEl);
+    titles.appendChild(createTextEl('div', 'popup-cn', displayName));
+  } else if (cnName) {
+    titles.appendChild(createTextEl('div', 'popup-name', cnName));
+    titles.appendChild(createTextEl('div', 'popup-cn', displayName));
+  } else {
+    titles.appendChild(createTextEl('div', 'popup-name', displayName));
+    if (names && names.length > 1) {
+      titles.appendChild(createTextEl('div', 'popup-cn', cleanName(names[1])));
+    }
+  }
+  header.appendChild(titles);
+
+  var closeBtn = document.createElement('button');
+  closeBtn.className = 'popup-close';
+  closeBtn.textContent = '\u00d7';
+  closeBtn.addEventListener('click', function(e) { e.preventDefault(); e.stopPropagation(); window._xjClosePopup(); });
+  closeBtn.addEventListener('touchend', function(e) { e.preventDefault(); e.stopPropagation(); window._xjClosePopup(); });
+  header.appendChild(closeBtn);
+  container.appendChild(header);
+
+  // 标签行
+  var tags = document.createElement('div');
+  tags.className = 'popup-tags';
+  var types = (apiData && apiData.types) || obj.types;
+  if (types && types[0]) tags.appendChild(createTextEl('span', 'popup-tag type', getTypeCn(types[0])));
+  if (modelData && modelData.morpho && modelData.morpho.trim()) {
+    tags.appendChild(createTextEl('span', 'popup-tag morpho', getMorphoCn(modelData.morpho.trim())));
+  }
+  if (modelData && modelData.spect_t) {
+    tags.appendChild(createTextEl('span', 'popup-tag spect', modelData.spect_t));
+  }
+  if (isNamed) {
+    var soldTag = createTextEl('span', 'sold-badge', '\u2605 已命名');
+    tags.appendChild(soldTag);
+  }
+  if (tags.children.length > 0) container.appendChild(tags);
+
+  // 别名列表
+  var allNames = (apiData && apiData.names) || names;
+  if (allNames && allNames.length > 1) {
+    var aliasDiv = document.createElement('div');
+    aliasDiv.className = 'popup-aliases';
+    // 跳过第一个（已经是主标题了）
+    var shown = allNames.slice(1, 5);
+    shown.forEach(function(n) { aliasDiv.appendChild(createTextEl('span', '', cleanName(n))); });
+    if (allNames.length > 5) aliasDiv.appendChild(createTextEl('span', '', '\u2026'));
+    container.appendChild(aliasDiv);
+  }
+
+  // 数据指标网格
+  var statsDiv = document.createElement('div');
+  statsDiv.className = 'popup-stats';
+  var hasStats = false;
+
+  // 视星等：优先引擎实时数据，其次 API model_data.Vmag
+  var vmag = null;
+  try { vmag = obj.getInfo('vmag'); } catch(e) {}
+  if ((vmag === undefined || vmag === null || isNaN(vmag) || vmag >= 99) && modelData && modelData.Vmag != null) {
+    vmag = modelData.Vmag;
+  }
+  if (vmag != null && !isNaN(vmag) && vmag < 99) {
+    addStat(statsDiv, '视星等', Number(vmag).toFixed(2), 'mag');
+    hasStats = true;
+  }
+
+  // 距离：引擎实时
+  var dist = null;
+  try { dist = obj.getInfo('distance'); } catch(e) {}
+  var distFmt = formatDistance(dist);
+  if (distFmt) { addStat(statsDiv, '距离', distFmt.value, distFmt.unit); hasStats = true; }
+
+  // 红移 → 估算距离（深空天体引擎通常不返回距离）
+  if (!distFmt && modelData && modelData.redsh && modelData.redsh > 0) {
+    // 哈勃定律粗估：d ≈ (cz/H0), H0=70 km/s/Mpc, c=299792 km/s
+    var dMpc = (modelData.redsh * 299792) / 70;
+    var dMly = dMpc * 3.2616;
+    if (dMly >= 1) {
+      addStat(statsDiv, '距离', dMly.toFixed(1), '百万光年');
+    } else {
+      addStat(statsDiv, '距离', (dMly * 1000).toFixed(0), '千光年');
+    }
+    hasStats = true;
+  }
+
+  // 视角尺寸
+  if (modelData && modelData.dimx) {
+    var dimy = modelData.dimy || modelData.dimx;
+    addStat(statsDiv, '角大小', modelData.dimx.toFixed(1) + "'\u00d7" + dimy.toFixed(1) + "'", '');
+    hasStats = true;
+  }
+
+  // 半径
+  if (modelData && modelData.radius) {
+    addStat(statsDiv, '半径', Number(modelData.radius).toLocaleString(), 'km');
+    hasStats = true;
+  }
+
+  // 红移
+  if (modelData && modelData.redsh != null) {
+    var z = modelData.redsh;
+    addStat(statsDiv, '红移', z < 0.001 ? z.toExponential(2) : z.toFixed(5), 'z');
+    hasStats = true;
+  }
+
+  // 径向速度
+  if (modelData && modelData.rv != null) {
+    addStat(statsDiv, '视向速度', Number(modelData.rv).toFixed(1), 'km/s');
+    hasStats = true;
+  }
+
+  // B 星等
+  if (modelData && modelData.Bmag != null) {
+    addStat(statsDiv, 'B 星等', Number(modelData.Bmag).toFixed(2), 'mag');
+    hasStats = true;
+  }
+
+  // 相位（行星/月球）
+  var phase = null;
+  try { phase = obj.getInfo('phase'); } catch(e) {}
+  if (phase != null && !isNaN(phase)) {
+    addStat(statsDiv, '相位', (phase * 100).toFixed(0), '%');
+    hasStats = true;
+  }
+
+  // 赤经赤纬（来自 API）
+  if (modelData && modelData.ra != null && modelData.de != null) {
+    var raH = modelData.ra / 15;
+    var raHi = Math.floor(raH); var raM = Math.floor((raH - raHi) * 60); var raS = ((raH - raHi) * 60 - raM) * 60;
+    var raStr = pad2(raHi) + 'h ' + pad2(raM) + 'm ' + pad2(Math.floor(raS)) + 's';
+    var dec = modelData.de;
+    var decSign = dec >= 0 ? '+' : '-';
+    dec = Math.abs(dec);
+    var decD = Math.floor(dec); var decM = Math.floor((dec - decD) * 60); var decS = ((dec - decD) * 60 - decM) * 60;
+    var decStr = decSign + pad2(decD) + '\u00b0 ' + pad2(decM) + "' " + pad2(Math.floor(decS)) + '"';
+    addStat(statsDiv, '赤经', raStr, '');
+    addStat(statsDiv, '赤纬', decStr, '');
+    hasStats = true;
+  }
+
+  if (hasStats) container.appendChild(statsDiv);
+
+  // 命名寄语
+  if (isNamed && apiData.naming_message) {
+    container.appendChild(createTextEl('div', 'naming-message', '\u201c' + apiData.naming_message + '\u201d'));
+  }
+}
+
+function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+
+function addStat(parent, label, value, unit) {
+  var el = document.createElement('div');
+  el.className = 'popup-stat';
+  el.appendChild(createTextEl('div', 'label', label));
+  var valEl = document.createElement('div');
+  valEl.className = 'value';
+  valEl.textContent = value;
+  if (unit) {
+    valEl.appendChild(createTextEl('span', 'unit', ' ' + unit));
+  }
+  el.appendChild(valEl);
+  parent.appendChild(el);
+}
+
+// 暴露全局 API
+window.XingJi = XingJi;
+
+// 嵌入模式：通过 URL 参数或 iframe 检测，为宿主预留安全区域
+(function() {
+  var params = new URLSearchParams(window.location.search);
+
+  // 底部偏移（宿主 TabBar）
+  var bottom = params.get('paddingBottom');
+  if (!bottom && window !== window.top) bottom = '56';
+  if (bottom) {
+    var bpx = bottom + 'px';
+    document.querySelector('.sky-toolbar-wrap').style.bottom = 'calc(12px + ' + bpx + ')';
+    document.querySelector('.object-popup').style.paddingBottom = 'calc(24px + ' + bpx + ')';
+  }
+
+  // 顶部偏移（状态栏）
+  var top = params.get('paddingTop');
+  if (top && parseInt(top) > 0) {
+    var tpx = top + 'px';
+    // 顶部导航栏
+    var topBar = document.querySelector('.top-bar');
+    topBar.style.paddingTop = tpx;
+    topBar.style.height = 'calc(44px + ' + tpx + ')';
+    // 搜索栏
+    var searchBar = document.querySelector('.search-bar');
+    if (searchBar) searchBar.style.top = 'calc(50px + ' + tpx + ')';
+    // 进度环
+    var progressBars = document.querySelector('.progress-bars');
+    if (progressBars) progressBars.style.top = 'calc(52px + ' + tpx + ')';
+    // 陀螺仪悬浮按钮（在数据来源下方）
+    var gyroFab = document.querySelector('.gyro-fab');
+    if (gyroFab) gyroFab.style.top = 'calc(76px + ' + tpx + ')';
+    // 刷新按钮（在陀螺仪下方）——必须同步下移，否则真机状态栏偏移下会与陀螺仪重合
+    var refreshFab = document.querySelector('.refresh-fab');
+    if (refreshFab) refreshFab.style.top = 'calc(132px + ' + tpx + ')';
+  }
+})();
+
+// 检测是否嵌入在 iframe/WebView 中，为宿主 TabBar 留出空间
+
+// === 设置 API 地址 ===
+// App 内嵌时由宿主通过 XingJi.setApiBaseUrl() 设置；独立访问时按域名选择
+if (!XingJi._apiBaseUrl) {
+  var params = new URLSearchParams(window.location.search);
+  var apiUrl = params.get('apiBase');
+  if (!apiUrl) {
+    // 线上：sky.xunjifanxing.top 走 https://api.xunjifanxing.top（9090 端口未开 SSL）
+    // 本地/局域网：回落同 host:9090
+    if (window.location.hostname === 'sky.xunjifanxing.top') {
+      apiUrl = 'https://api.xunjifanxing.top';
+    } else {
+      apiUrl = window.location.protocol + '//' + window.location.hostname + ':9090';
+    }
+  }
+  XingJi.setApiBaseUrl(apiUrl);
+}
+
+// === 引擎初始化 ===
+StelWebEngine({
+  wasmFile: 'stellarium-web-engine.wasm?v=20260703',  // 版本号须与上方 import 一致
+  canvas: document.getElementById('stel-canvas'),
+  translateFn: function(domain, str) {
+    if (!str) return str;
+    var translated = translateName(str);
+    // 调试：记录所有翻译请求，便于在 console 查看引擎实际传入的字符串
+    if (!window._xjTranslateLog) window._xjTranslateLog = {};
+    var key = domain + '|' + str;
+    if (!window._xjTranslateLog[key]) {
+      window._xjTranslateLog[key] = { domain: domain, input: str, output: translated, hit: translated !== str, count: 0 };
+    }
+    window._xjTranslateLog[key].count++;
+    return translated;
+  },
+  onReady: function(stel) {
+    XingJi._stel = stel;
+    var core = stel.core;
+
+    // 保底：手动注册翻译回调（pre.js 的自动注册时序有时拿不到 Module.translateFn）
+    if (stel._sys_set_translate_function && stel.addFunction) {
+      var _xjTransCache = {};
+      var _xjTransCb = stel.addFunction(function(user, domainPtr, strPtr) {
+        var domain = stel.UTF8ToString(domainPtr);
+        var str = stel.UTF8ToString(strPtr);
+        var translated = translateName(str);
+        // 调试记录（保留 _xjTranslateLog 接口）
+        if (!window._xjTranslateLog) window._xjTranslateLog = {};
+        var key = domain + '|' + str;
+        if (!window._xjTranslateLog[key]) {
+          window._xjTranslateLog[key] = { domain: domain, input: str, output: translated, hit: translated !== str, count: 0 };
+        }
+        window._xjTranslateLog[key].count++;
+        // 缓存 malloc 指针，避免重复分配
+        var cached = _xjTransCache[translated];
+        if (cached) return cached;
+        var size = stel.lengthBytesUTF8(translated) + 1;
+        var value = stel._malloc(size);
+        stel.stringToUTF8(translated, value, size);
+        _xjTransCache[translated] = value;
+        return value;
+      }, 'iiii');
+      stel._sys_set_translate_function(_xjTransCb);
+      console.log('[diag] translate callback manually registered in onReady');
+    }
+
+    // 加载基础星表数据
+    core.stars.addDataSource({ url: 'skydata/stars' });
+    core.dsos.addDataSource({ url: 'skydata/dso' });
+
+    // 银河背景：本地赤道系 HiPS（hips_frame=equatorial），与星表严格对齐。
+    // ⚠️ 不要换成 CDS Mellinger（alasky.u-strasbg.fr/MellingerRGB）：它虽更高清，但声明的是
+    //    银道系 hips_frame=galactic，而本引擎不读取 hips_frame、也没有 FRAME_GALACTIC，
+    //    会把银道图当赤道图直接绘制 → 银河相对星星整体旋转约 60° 错位。见 milkyway.c / hips.c。
+    core.milkyway.addDataSource({ url: 'skydata/surveys/milkyway' });
+
+    // 深空天体真实摄影图：本地镜像 CDS DSS2 彩色 HiPS Norder 0-4（~224 MB，同源加速）
+    // properties.hips_order=4，引擎不会请求 Norder 5-9（缩放上限受限，但 0-4 已覆盖肉眼可辨视场）
+    core.dss.addDataSource({ url: 'dss-tiles' });
+
+    // 星座（西方）
+    core.skycultures.addDataSource({ url: 'skydata/skycultures/western', key: 'western' });
+
+    // 地景
+    core.landscapes.addDataSource({ url: 'skydata/landscapes/guereins', key: 'guereins' });
+
+    // 默认显示设置
+    core.atmosphere.visible = false;
+    core.constellations.lines_visible = true;
+    // 所有「中文标签层」先隐藏，等中文字体加载完成后由 revealLabels() 统一开启。
+    // 原因：中文 fallback 字体是异步 fetch 的，引擎从第一帧就开始渲染，若标签在
+    // 字体就绪前渲染，nanovg 会对每个字形缓存「找不到」的负结果且永不重试，
+    // 表现为豆腐块（□）或空白，缩放也不恢复。详见下方 setFont 处。
+    core.constellations.labels_visible = false;
+    core.stars.hints_visible = false;
+    core.dsos.hints_visible = false;
+    core.planets.hints_visible = false;
+
+    // === 底部工具栏控制 ===
+    var toolbarConfig = {
+      'constellations':     function() { return core.constellations.lines_visible; },
+      'constellation-art':  function() { return core.constellations.images_visible; },
+      'atmosphere':         function() { return core.atmosphere.visible; },
+      'landscape':          function() { return core.landscapes.visible; },
+      'azimuthal':          function() { return core.lines.azimuthal.visible; },
+      'equatorial':         function() { return core.lines.equatorial_jnow.visible; },
+      'ecliptic':           function() { return core.lines.ecliptic.visible; },
+      'dso':                function() { return core.dsos.visible; }
+    };
+    var toolbarSetters = {
+      'constellations':     function(v) { core.constellations.lines_visible = v; core.constellations.labels_visible = v; },
+      'constellation-art':  function(v) { core.constellations.images_visible = v; },
+      'atmosphere':         function(v) { core.atmosphere.visible = v; },
+      'landscape':          function(v) { core.landscapes.visible = v; },
+      'azimuthal':          function(v) { core.lines.azimuthal.visible = v; },
+      'equatorial':         function(v) { core.lines.equatorial_jnow.visible = v; },
+      'ecliptic':           function(v) { core.lines.ecliptic.visible = v; },
+      'dso':                function(v) { core.dsos.visible = v; }
+    };
+
+    // 初始化按钮状态
+    var toolbar = document.getElementById('sky-toolbar');
+    toolbar.querySelectorAll('.sky-toggle').forEach(function(btn) {
+      var key = btn.dataset.key;
+      if (toolbarConfig[key] && toolbarConfig[key]()) btn.classList.add('on');
+      btn.addEventListener('click', function() {
+        var isOn = btn.classList.toggle('on');
+        if (toolbarSetters[key]) toolbarSetters[key](isOn);
+      });
+    });
+
+    // 横向滚动指示器：滑到末尾时隐藏右侧渐变 + 箭头
+    var toolbarWrap = document.getElementById('sky-toolbar-wrap');
+    function updateScrollHint() {
+      var atEnd = toolbar.scrollLeft + toolbar.clientWidth >= toolbar.scrollWidth - 4;
+      var noOverflow = toolbar.scrollWidth <= toolbar.clientWidth + 1;
+      toolbarWrap.classList.toggle('at-end', atEnd || noOverflow);
+    }
+    toolbar.addEventListener('scroll', updateScrollHint, { passive: true });
+    window.addEventListener('resize', updateScrollHint);
+    // 初始化 + 等首屏稳定后再算一次
+    updateScrollHint();
+    setTimeout(updateScrollHint, 300);
+
+    // 陀螺仪按钮（独立处理，不走 toolbarConfig 映射）
+    var gyroBtn = document.getElementById('btn-gyro');
+    if (gyroBtn) {
+      gyroBtn.addEventListener('click', async function() {
+        if (!window.DeviceOrientationEvent) {
+          alert('当前设备不支持陀螺仪');
+          return;
+        }
+        var enabled = await XingJi.toggleGyro();
+        gyroBtn.classList.toggle('on', enabled);
+        if (!enabled && !XingJi._gyroEnabled) {
+          // 未能启用，可能是权限或 HTTPS 问题
+          // 尝试检测是否有数据
+        }
+        // 陀螺仪开启时取消锁定目标（引擎绑定只认 =0 清除，=null 是 no-op）
+        if (enabled) {
+          stel.core.lock = 0;
+          stel.core.selection = 0;
+        }
+      });
+    }
+
+    // 字体加载：先英文（Roboto），再中文 fallback（zhfont）。
+    //
+    // 历史 bug（App WebView 后台杀进程→热启动→星空文字全空白，清缓存才恢复）的真正根因：
+    //   pre.js 的 setFont 用标准 fetch，只判 `response.ok`，不校验返回字节是否完整。
+    //   WebView 热启动从损坏/被截断的磁盘 HTTP 缓存读字体时，会返回「ok=true 但 body
+    //   空/不全」，坏字节被 nvgCreateFontMem 注册后污染整个 face（连英文方位都不渲染）。
+    //   ⚠️ 注意：fetch 看不到 304 —— WebView 对条件请求收到 304 会透明回放缓存为 200，
+    //   `response.ok` 恒为 true，所以「靠 response.ok 进 catch 重试」是死代码，永不触发，
+    //   这正是上一版「304 重试」修复无效、问题反复复现的原因。
+    //
+    // 正确解法（本段）：调 setFont 前，自己 fetch 并校验字节完整性（TTF magic + 最小
+    //   长度）。坏缓存 → 用 {cache:'reload'} 强制绕缓存重下并改写磁盘缓存条目，setFont
+    //   随后命中已修好的缓存。全程超时兜底，最终失败也必定 revealLabels 退化英文兜底，
+    //   绝不让标签因 Promise 永久 pending 而全隐藏。
+    core.cardinals.visible = false;
+    function revealLabels() {
+      core.cardinals.visible = true;
+      core.constellations.labels_visible = true;
+      core.stars.hints_visible = true;
+      core.dsos.hints_visible = true;
+      core.planets.hints_visible = true;
+    }
+
+    // 校验是否为完整有效的 TTF/OTF 字节（挡住空 body / 严重截断的坏缓存）。
+    // 不写死精确字节数：本地子集 ~195KB、线上 ~223KB 等不同版本都应通过，
+    // 只要 magic 正确且长度远大于「空/极短」即可。
+    function isValidFontBytes(buf) {
+      if (!buf || buf.byteLength < 50000) return false;
+      var m = new DataView(buf).getUint32(0, false);
+      // 00010000=TrueType, 'OTTO'=OpenType/CFF, 'true', 'ttcf'
+      return m === 0x00010000 || m === 0x4F54544F ||
+             m === 0x74727565 || m === 0x74746366;
+    }
+    function withTimeout(promise, ms, tag) {
+      return new Promise(function(resolve, reject) {
+        var t = setTimeout(function() { reject(new Error('字体加载超时: ' + tag)); }, ms);
+        promise.then(
+          function(v) { clearTimeout(t); resolve(v); },
+          function(e) { clearTimeout(t); reject(e); }
+        );
+      });
+    }
+    // 预热并校验字体缓存；坏则绕缓存强制重下（reload 会改写磁盘缓存条目），
+    // 使后续 setFont 内部的普通 fetch 命中完整字节。
+    //   forceReload=true 时首个请求就绕缓存（重试轮用），timeoutMs 可缩短以便快速失败重试。
+    function primeFont(url, forceReload, timeoutMs) {
+      var t = timeoutMs || 8000;
+      var firstOpts = forceReload ? { cache: 'reload' } : undefined;
+      return withTimeout(fetch(url, firstOpts), t, url)
+        .then(function(r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status + ': ' + url);
+          return r.arrayBuffer();
+        })
+        .then(function(buf) {
+          if (isValidFontBytes(buf)) return; // 缓存完整，直接交给 setFont
+          console.warn('[xj] 字体缓存损坏，绕缓存强制重下:', url);
+          return withTimeout(fetch(url, { cache: 'reload' }), 12000, url + '#reload')
+            .then(function(r) {
+              if (!r.ok) throw new Error('reload HTTP ' + r.status + ': ' + url);
+              return r.arrayBuffer();
+            })
+            .then(function(buf2) {
+              if (!isValidFontBytes(buf2)) throw new Error('字体重下后仍损坏: ' + url);
+            });
+        });
+    }
+
+    // 原地重试加载字体：失败后短退避重试（重试轮强制绕缓存重下），最多 attempts 次。
+    // 这是替代「整页硬重载」的核心手段——旧的重载大锤是为常驻 web-view 热启动时已污染的
+    // 字体 face（nanovg「只增不换」换不掉）准备的；而现在每次进星图都是全新 web-view + 全新
+    // nanovg，且所有标签在 revealLabels 前一直隐藏（不会缓存「找不到字形」的负结果），因此
+    // 只要在 reveal 之前把字体在原地反复重试加载好即可，全程无重载、无闪烁、不打断用户操作。
+    // loadOnce(forceReload) 必须返回加载+setFont 的 Promise。
+    var FONT_RETRY_DELAYS = [400, 800, 1500];
+    function withFontRetry(tag, attempts, loadOnce) {
+      function attempt(i) {
+        return loadOnce(i > 0).catch(function(e) {
+          if (i >= attempts - 1) throw e;
+          var d = FONT_RETRY_DELAYS[Math.min(i, FONT_RETRY_DELAYS.length - 1)];
+          console.warn('[xj] ' + tag + ' 加载失败(第' + (i + 1) + '次)，' + d + 'ms 后原地重试',
+                       e && e.message);
+          return new Promise(function(res) { setTimeout(res, d); })
+            .then(function() { return attempt(i + 1); });
+        });
+      }
+      return attempt(0);
+    }
+
+    // 英文字体也走校验：坏缓存若污染了主字体槽，连拉丁字母都会消失；带原地重试，
+    // 最终失败也不阻塞，保留引擎内置 NotoSans 兜底，绝不注册坏字节。
+    withFontRetry('Roboto-Regular', 3, function(fr) {
+      return primeFont('fonts/Roboto-Regular.ttf', fr)
+        .then(function() { return stel.setFont('regular', 'fonts/Roboto-Regular.ttf', 1.38); });
+    }).catch(function(e) { console.warn('[xj] Roboto-Regular 最终失败，回退内置字体', e); });
+    withFontRetry('Roboto-Bold', 3, function(fr) {
+      return primeFont('fonts/Roboto-Bold.ttf', fr)
+        .then(function() { return stel.setFont('bold', 'fonts/Roboto-Bold.ttf', 1.38); });
+    }).catch(function(e) { console.warn('[xj] Roboto-Bold 最终失败，回退内置字体', e); });
+
+    // 中文 fallback：关键路径，必须确保字节完整再 setFont，否则负缓存/污染致全空白。
+    // 版本号 v6→v7：让所有客户端丢弃可能已损坏的 v6 缓存条目，立即恢复现网用户。
+    // v7→v8：新增 110 个梅西耶天体中文名（67 个新汉字），需刷新子集字体缓存。
+    var ZH_FONT_URL = 'fonts/zhfont.ttf?v=8';
+    // 单次中文字体加载：per-attempt 缩短到 3.5s，让偶发的挂起/失败快速触发原地重试。
+    function loadZhFontOnce(forceReload) {
+      return primeFont(ZH_FONT_URL, forceReload, 3500).then(function() {
+        return Promise.all([
+          stel.setFont('regular', ZH_FONT_URL, 1.38),
+          stel.setFont('bold', ZH_FONT_URL, 1.38)
+        ]);
+      });
+    }
+    // _xjLabelsHealthy：中文字体链完整成功、revealLabels 正常打开标签时才置真（诊断/兜底用）。
+    window._xjLabelsHealthy = false;
+    // 原地重试最多 4 次；外层再包一个 8s 总闸：即便重试还没成功，也在 8s 时先退化英文兜底
+    // 显示标签（后台重试仍可继续，但不再阻塞标签出现），绝不让用户永久盯着无字星空。
+    // 与旧方案的本质区别：这里到点只是「退英文兜底」，不是整页重载，用户无感、不闪、不打断。
+    var ZH_OVERALL_MS = 8000;
+    withTimeout(withFontRetry('zhfont', 4, loadZhFontOnce), ZH_OVERALL_MS, 'zhfont-overall')
+      .then(function() {
+        window._xjLabelsHealthy = true;
+        revealLabels();
+      })
+      .catch(function(e) {
+        // 中文多次重试仍失败：退化英文兜底，至少方位/拉丁标签可见，绝不全空白。
+        console.warn('[xj] 中文字体多次重试仍失败，退化英文兜底显示标签', e);
+        revealLabels();
+      });
+
+    // 硬重载：修复偶发的中文标签全空白（字体缓存污染）。
+    // 引擎字体注册「只增不换」，运行中换不掉被污染的主字体 face，只有整页
+    // 重载（新 WASM + 全新 nanovg + 重新校验注册干净字体）能恢复。重载前先
+    // best-effort 用 {cache:'reload'} 重取字体，把磁盘里被截断的坏缓存条目
+    // 重写成干净字节，让重载后 primeFont 命中干净缓存。挂在 window 上供底部
+    // 非-module 脚本的按钮处理器跨作用域调用（主脚本是 type=module）。
+    window._xjHardReload = function() {
+      var urls = [ZH_FONT_URL, 'fonts/Roboto-Regular.ttf', 'fonts/Roboto-Bold.ttf'];
+      var refetch = Promise.all(urls.map(function(u) {
+        return fetch(u, { cache: 'reload' }).catch(function() {});
+      }));
+      // 整体 3s 超时兜底：离线/慢网也绝不卡住重载。
+      var guard = new Promise(function(resolve) { setTimeout(resolve, 3000); });
+      Promise.race([refetch, guard]).then(function() {
+        location.reload();
+      });
+    };
+
+    // === 资源加载进度条 ===
+    var CIRC = 2 * Math.PI * 7; // ring-fg 周长 (r=7)
+    var progressContainer = document.getElementById('progress-bars');
+    var progressItems = {};
+
+    function createProgressItem() {
+      var NS = 'http://www.w3.org/2000/svg';
+      var div = document.createElement('div');
+      div.className = 'progress-item';
+      var label = document.createElement('span');
+      label.className = 'p-label';
+      var svg = document.createElementNS(NS, 'svg');
+      svg.setAttribute('class', 'progress-ring');
+      svg.setAttribute('viewBox', '0 0 18 18');
+      var bg = document.createElementNS(NS, 'circle');
+      bg.setAttribute('class', 'ring-bg');
+      bg.setAttribute('cx', '9'); bg.setAttribute('cy', '9'); bg.setAttribute('r', '7');
+      var fg = document.createElementNS(NS, 'circle');
+      fg.setAttribute('class', 'ring-fg');
+      fg.setAttribute('cx', '9'); fg.setAttribute('cy', '9'); fg.setAttribute('r', '7');
+      fg.setAttribute('stroke-dasharray', CIRC);
+      fg.setAttribute('stroke-dashoffset', CIRC);
+      svg.appendChild(bg);
+      svg.appendChild(fg);
+      div.appendChild(label);
+      div.appendChild(svg);
+      return { el: div, label: label, fg: fg };
+    }
+
+    var STALE_MS = 3000; // 进度停滞超过 3 秒后自动淡出
+
+    stel.change(function() {
+      var bars = core.progressbars;
+      if (!bars) return;
+      var now = Date.now();
+      var activeIds = {};
+      bars.forEach(function(bar) {
+        activeIds[bar.id] = true;
+        var item = progressItems[bar.id];
+        if (!item) {
+          item = createProgressItem();
+          item.lastValue = -1;
+          item.lastChangeTime = now;
+          item.stale = false;
+          progressContainer.appendChild(item.el);
+          progressItems[bar.id] = item;
+          requestAnimationFrame(function() { item.el.classList.add('visible'); });
+        }
+        // 检测进度是否有变化
+        var pct = bar.total > 0 ? bar.value / bar.total : 0;
+        if (bar.value !== item.lastValue) {
+          item.lastValue = bar.value;
+          item.lastChangeTime = now;
+          if (item.stale) {
+            item.stale = false;
+            item.el.classList.add('visible');
+          }
+        } else if (!item.stale && now - item.lastChangeTime > STALE_MS) {
+          // 进度停滞超时 → 淡出隐藏
+          item.stale = true;
+          item.el.classList.remove('visible');
+        }
+        item.label.textContent = bar.label;
+        item.fg.setAttribute('stroke-dashoffset', CIRC * (1 - pct));
+      });
+      Object.keys(progressItems).forEach(function(id) {
+        if (!activeIds[id]) {
+          var item = progressItems[id];
+          item.el.classList.remove('visible');
+          setTimeout(function() {
+            if (item.el.parentNode) item.el.parentNode.removeChild(item.el);
+          }, 600);
+          delete progressItems[id];
+        }
+      });
+    }, 'progressbars');
+
+    // === 双指缩放时保持锁定 ===
+    // 问题：双指缩放时，第一个手指可能先触发引擎的 pan 手势，导致 lock 被清除
+    // 解决：跟踪多点触控状态，当 lock 在双指操作期间丢失时自动恢复
+    var _touchCount = 0;
+    var stelCanvas = document.getElementById('stel-canvas');
+    var _touchStartPos = null;
+    stelCanvas.addEventListener('touchstart', function(e) {
+      _touchCount = e.touches.length;
+      if (e.touches.length === 1) {
+        _touchStartPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      } else {
+        _touchStartPos = null; // 多指 → 不是单击
+      }
+    }, true);
+    stelCanvas.addEventListener('touchend', function(e) {
+      _touchCount = e.touches.length;
+      // 单指且未大幅移动 → 用户点击星体，解除弹窗抑制
+      if (e.touches.length === 0 && _touchStartPos && e.changedTouches.length === 1) {
+        var dx = e.changedTouches[0].clientX - _touchStartPos.x;
+        var dy = e.changedTouches[0].clientY - _touchStartPos.y;
+        if (dx * dx + dy * dy < 400) { // 20px 以内算点击
+          if (window._xjAllowPopup) window._xjAllowPopup();
+        }
+      }
+      _touchStartPos = null;
+    }, true);
+    stelCanvas.addEventListener('touchcancel', function(e) {
+      _touchCount = e.touches.length;
+      _touchStartPos = null;
+    }, true);
+    // 桌面端：鼠标点击也解除抑制
+    stelCanvas.addEventListener('click', function() {
+      if (window._xjAllowPopup) window._xjAllowPopup();
+    }, true);
+
+    stel.change(function() {
+      // 双指操作中 lock 被意外清除 → 恢复锁定
+      if (_touchCount >= 2 && core.selection && !core.lock) {
+        stel.pointAndLock(core.selection, 0);
+      }
+    }, 'lock');
+
+    // 全局关闭弹窗函数
+    // _popupSuppressed: 关闭后抑制弹窗，直到用户主动点击星体或搜索结果
+    var _popupSuppressed = false;
+    window._xjClosePopup = function() {
+      _popupSuppressed = true;
+      core.lock = 0;        // 引擎绑定只认 =0 清除，=null/=undefined 是 no-op
+      core.selection = 0;
+      var popup = document.getElementById('object-popup');
+      popup.classList.remove('show', 'collapsed');
+      popup.style.transform = '';
+      document.getElementById('sky-toolbar-wrap').classList.remove('hidden');
+      clearViewOffset();
+    };
+    // 供搜索结果点击时调用，解除抑制
+    window._xjAllowPopup = function() {
+      _popupSuppressed = false;
+    };
+
+    // 铭牌底部卡片：点顶部把手 → 收起到 peek 小条（只露星名+✕），保持锁定可放大查看；
+    // 再点 → 展开。✕ 才真正关闭并解锁。用「点击」而非拖动，避免与卡片滚动/canvas 手势冲突。
+    (function setupPopupCollapse() {
+      var popup = document.getElementById('object-popup');
+      var handle = popup ? popup.querySelector('.popup-handle') : null;
+      if (!popup || !handle) return;
+      // peek 露出高度 = 把手 + 头部（星名+✕）那一段；其余下移隐藏
+      function peekOffset() {
+        var header = popup.querySelector('.popup-header');
+        var visible = header
+          ? (header.getBoundingClientRect().bottom - popup.getBoundingClientRect().top) + 14
+          : 120;
+        return Math.max(0, popup.offsetHeight - visible);
+      }
+      function toggle() {
+        if (!popup.classList.contains('show')) return;
+        var collapsed = popup.classList.toggle('collapsed');
+        popup.style.transform = collapsed ? 'translateY(' + peekOffset() + 'px)' : '';
+      }
+      // 移动端：轻点（无明显移动）才切换，避免误触；并防 touchend 后又触发合成 click 双切换
+      var sx = 0, sy = 0, st = 0, moved = false, lastTouch = 0;
+      handle.addEventListener('touchstart', function(e) {
+        var t = e.touches[0]; sx = t.clientX; sy = t.clientY; st = Date.now(); moved = false;
+      }, { passive: true });
+      handle.addEventListener('touchmove', function(e) {
+        var t = e.touches[0];
+        if (Math.abs(t.clientX - sx) > 10 || Math.abs(t.clientY - sy) > 10) moved = true;
+      }, { passive: true });
+      handle.addEventListener('touchend', function(e) {
+        if (!moved && Date.now() - st < 400) { e.preventDefault(); lastTouch = Date.now(); toggle(); }
+      });
+      handle.addEventListener('click', function() {
+        if (Date.now() - lastTouch < 600) return;   // 刚由 touch 处理过，跳过合成 click
+        toggle();
+      });
+    })();
+
+    // 监听天体选中
+    stel.change(function(obj) {
+      var sel = core.selection;
+      if (!sel) {
+        var popup = document.getElementById('object-popup');
+        popup.classList.remove('show', 'collapsed');
+        popup.style.transform = '';
+        document.getElementById('sky-toolbar-wrap').classList.remove('hidden');
+        clearViewOffset();
+        return;
+      }
+      if (_popupSuppressed) return;
+      showObjectPopup(sel);
+      if (XingJi._objectSelectedCallback) {
+        XingJi._objectSelectedCallback(sel);
+      }
+    }, 'selection');
+
+    // 获取用户位置：优先级 ① 宿主传入的 URL 参数 lat/lng（App 端 uni.getLocation）
+    //                  ② navigator.geolocation（H5 浏览器原生）
+    //                  ③ 北京默认值
+    (function() {
+      var qp = new URLSearchParams(window.location.search);
+      var qpLat = parseFloat(qp.get('lat'));
+      var qpLng = parseFloat(qp.get('lng'));
+      if (!isNaN(qpLat) && !isNaN(qpLng) && Math.abs(qpLat) <= 90 && Math.abs(qpLng) <= 180) {
+        XingJi.setStellariumLocation(qpLat, qpLng);
+        return;
+      }
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          function(pos) {
+            XingJi.setStellariumLocation(pos.coords.latitude, pos.coords.longitude);
+          },
+          function(err) {
+            console.warn('Geolocation failed:', err.message);
+            document.getElementById('loc-text').textContent = '无法获取位置';
+            XingJi.setStellariumLocation(39.9, 116.4);
+          },
+          { timeout: 10000 }
+        );
+      } else {
+        document.getElementById('loc-text').textContent = '不支持定位';
+        XingJi.setStellariumLocation(39.9, 116.4);
+      }
+    })();
+
+    console.log('Stellarium engine ready');
+  }
+});
+</script>
+
+<!-- 数据来源 -->
+<div class="credits-dialog" id="credits-dialog">
+  <div class="credits-panel">
+    <button class="credits-close" id="credits-close">&times;</button>
+    <div class="credits-toggle">
+      <span class="ct-label">星体铭牌</span>
+      <button class="ct-switch" id="badge-switch"></button>
+    </div>
+    <h3>Stars</h3>
+    <p>Combination of the following catalogues:</p>
+    <ul>
+      <li>Gaia DR2: Data from the ESA mission Gaia, processed by the Gaia DPAC. Gaia Collaboration et al. (2016, 2018b).</li>
+      <li>Hipparcos: ESA, 1997, The Hipparcos and Tycho Catalogues, ESA SP-1200</li>
+      <li>Bright Star Catalogue, 5th Revised Ed. (Hoffleit+, 1991)</li>
+    </ul>
+    <h3>Deep Sky Objects</h3>
+    <ul>
+      <li>HyperLeda database, Makarov et al. 2014, A&amp;A, 570, A13</li>
+      <li>SIMBAD database, operated at CDS, Strasbourg, France. Wenger et al. 2000, A&amp;AS, 143, 9</li>
+      <li>Open NGC Database: Mattia Verga (<a href="https://github.com/mattiaverga/OpenNGC" target="_blank">OpenNGC</a>)</li>
+    </ul>
+    <h3>Background Image</h3>
+    <p>Digitized Sky Survey — STScI/NASA, colored &amp; healpixed by CDS. Based on DSS2-red (POSS-II F, AAO-SES, SR, SERC-ER) and DSS2-blue (POSS-II J, SERC-J, EJ).</p>
+    <h3>Planets</h3>
+    <p>All images from NASA &amp; JPL, public domain.</p>
+    <h3>Minor Planets</h3>
+    <p>Data from IAU Minor Planet Center (<a href="https://www.minorplanetcenter.net/data" target="_blank">minorplanetcenter.net</a>).</p>
+    <h3>Others</h3>
+    <p>Landscape by Fabien Chereau. Constellation lines by Fabien Chereau. Graphics by <a href="https://stellarium-labs.com" target="_blank">Stellarium Labs</a>.</p>
+    <h3>Sky Culture &amp; Constellation Art</h3>
+    <p>Western sky culture — constellation figures, lines and Latin/English star names — adapted and modified from <a href="https://stellarium.org" target="_blank">Stellarium</a> sky cultures, © Stellarium team, licensed under <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank">CC BY-SA 4.0</a>.<br>
+    Constellation illustrations by Johan Meuris, licensed under <a href="https://artlibre.org/licence/lal/en/" target="_blank">Free Art License</a>.</p>
+    <h3>Source Code</h3>
+    <p>Based on <a href="https://github.com/Stellarium/stellarium-web-engine" target="_blank">Stellarium Web Engine</a> (GNU AGPL v3).<br>
+    Source code: <a href="https://github.com/sqh539/stellarium-web-engine" target="_blank">github.com/sqh539/stellarium-web-engine</a></p>
+  </div>
+</div>
+<script>
+(function() {
+  var dot = document.getElementById('btn-credits');
+  var dialog = document.getElementById('credits-dialog');
+  var close = document.getElementById('credits-close');
+  dot.addEventListener('click', function(e) {
+    e.stopPropagation();
+    dialog.classList.add('show');
+  });
+  close.addEventListener('click', function() {
+    dialog.classList.remove('show');
+  });
+  dialog.addEventListener('click', function(e) {
+    if (e.target === dialog) dialog.classList.remove('show');
+  });
+
+  // 星体铭牌开关（默认关闭=纯净模式，开启=显示别名）
+  var badgeSwitch = document.getElementById('badge-switch');
+  var badgeOn = localStorage.getItem('starBadge') === '1';
+  badgeSwitch.classList.toggle('on', badgeOn);
+  badgeSwitch.addEventListener('click', function() {
+    badgeOn = !badgeOn;
+    badgeSwitch.classList.toggle('on', badgeOn);
+    localStorage.setItem('starBadge', badgeOn ? '1' : '0');
+    // 切换后清缓存并刷新当前卡片，否则已缓存的别名会让开关像失效
+    if (window._xjRefreshAfterBadgeToggle) window._xjRefreshAfterBadgeToggle();
+  });
+
+  // 刷新按钮：加 loading 旋转动画后触发硬重载（重取字体+整页重载）。
+  var refreshBtn = document.getElementById('btn-refresh');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', function() {
+      if (refreshBtn.classList.contains('loading')) return; // 防连点
+      refreshBtn.classList.add('loading');
+      if (window._xjHardReload) {
+        window._xjHardReload();
+      } else {
+        location.reload(); // 引擎未就绪兜底
+      }
+    });
+  }
+})();
+window._xjIsPureMode = function() {
+  return localStorage.getItem('starBadge') !== '1';
+};
+</script>
+
+</body>
+</html>

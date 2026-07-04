@@ -39,7 +39,13 @@ typedef struct cardinal {
 static int cardinal_init(obj_t *obj, json_value *args)
 {
     cardinal_t *c = (void*)obj;
-    fader_init(&c->visible, true);
+    // 默认隐藏（原为 true）：方位字走 TEXT_BOLD 粗体，若默认可见则从第一帧就渲染
+    // 「北/东/南/西」。此时嵌入版的中文 fallback 字体尚未异步加载完成，nanovg 会把
+    // 「北」等字形当缺字（notdef）光栅化进粗体字形图集并缓存，之后即使中文字体加载好、
+    // 标签重新显示，命中的仍是被缓存的 notdef → 表现为红色缺字方框（且随开图初始朝向
+    // 时有时无）。改为默认隐藏后，由嵌入版 index.html 的 revealLabels() 在中文字体
+    // 就绪后再置 visible=true，「北」首次光栅化即带正确字形，从根本上避免缺字方框。
+    fader_init(&c->visible, false);
     return 0;
 }
 

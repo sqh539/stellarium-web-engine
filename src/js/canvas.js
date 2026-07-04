@@ -32,12 +32,14 @@ Module.afterInit(function() {
 
     var displayWidth  = rect.width;
     var displayHeight = rect.height;
-    var sizeChanged = (canvas.width  !== displayWidth) ||
-                      (canvas.height !== displayHeight);
+    var targetWidth = Math.round(displayWidth * dpr);
+    var targetHeight = Math.round(displayHeight * dpr);
+    var sizeChanged = (canvas.width  !== targetWidth) ||
+                      (canvas.height !== targetHeight);
 
     if (sizeChanged) {
-      canvas.width = displayWidth * dpr;
-      canvas.height = displayHeight * dpr;
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
     }
 
     // TODO: manage paning and flicking here
