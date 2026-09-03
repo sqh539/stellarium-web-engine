@@ -279,6 +279,23 @@ Module['starsSetNamedVisible'] = function(visible) {
   f(visible ? 1 : 0);
 };
 
+// Sold-DSO alias table (e.g. NGC 404): [{"name":"NGC 404","alias":"..."}].
+// Same heap marshalling as starsSetNamed.
+Module['dsosSetNamed'] = function(json) {
+  const str = json || '[]';
+  const size = Module.lengthBytesUTF8(str) + 1;
+  const ptr = Module._malloc(size);
+  Module.stringToUTF8(str, ptr, size);
+  const f = Module.cwrap('dsos_set_named', null, ['number']);
+  f(ptr);
+  Module._free(ptr);
+};
+
+Module['dsosSetNamedVisible'] = function(visible) {
+  const f = Module.cwrap('dsos_set_named_visible', null, ['number']);
+  f(visible ? 1 : 0);
+};
+
 Module['c2s'] = function(v) {
   var x = v[0];
   var y = v[1];

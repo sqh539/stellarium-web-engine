@@ -11,6 +11,8 @@
 
 #include "designation.h"
 #include "utstring.h"
+#include "uthash.h"
+#include "utils/utils_json.h"
 #include <regex.h>
 #include <zlib.h> // For crc32
 
@@ -78,6 +80,14 @@ struct survey {
     survey_t *next, *prev;
 };
 
+// Sold/named DSO alias entry, keyed by a designation string (e.g. "NGC 404")
+// matched against any entry of dso_t.names.
+typedef struct named_dso {
+    char            *name;  // key
+    char            *alias;
+    UT_hash_handle  hh;
+} named_dso_t;
+
 /*
  * Type: dsos_t
  * The module object.
@@ -90,10 +100,100 @@ typedef struct {
     // Hints/labels magnitude offset
     double      hints_mag_offset;
     bool        hints_visible;
+    // Sold/named DSOs: designation -> alias hash + visibility gate (runtime).
+    named_dso_t *named;
+    bool        named_visible;
 } dsos_t;
 
 // Static instance.
 static dsos_t *g_dsos = NULL;
+
+// Vivid per-object colour for sold-DSO alias labels (same look as the star
+// alias labels in stars.c): hue from a djb2 hash of the designation, moderate
+// saturation + full value so it reads bright and dreamy against native names.
+static void dso_alias_color(const char *key, double out[4])
+{
+    uint32_t hash = 5381;
+    const unsigned char *p = (const unsigned char *)key;
+    while (*p) hash = hash * 33 + *p++;
+    const double h = (hash % 360) / 60.0; // 0..6 sectors
+    const double sat = 0.55, val = 1.0;
+    const double c = val * sat;
+    const double x = c * (1.0 - fabs(fmod(h, 2.0) - 1.0));
+    const double m = val - c;
+    double r = 0, g = 0, b = 0;
+    switch ((int)h) {
+    case 0:  r = c; g = x; break;
+    case 1:  r = x; g = c; break;
+    case 2:  g = c; b = x; break;
+    case 3:  g = x; b = c; break;
+    case 4:  r = x; b = c; break;
+    default: r = c; b = x; break;
+    }
+    out[0] = r + m; out[1] = g + m; out[2] = b + m; out[3] = 1.0;
+}
+
+// Return the sold-DSO alias if the named layer is visible and any of the
+// object's designations is in the table; NULL otherwise.
+static const char *dso_get_named_alias(const dso_t *s)
+{
+    named_dso_t *e;
+    const char *n;
+    if (!g_dsos || !g_dsos->named_visible || !g_dsos->named || !s->names)
+        return NULL;
+    for (n = s->names; *n; n += strlen(n) + 1) {
+        HASH_FIND_STR(g_dsos->named, n, e);
+        if (e) return e->alias;
+    }
+    return NULL;
+}
+
+// Feed the sold-DSO alias table. json: [{"name":"NGC 404","alias":"..."}].
+// Replaces any existing table.
+EMSCRIPTEN_KEEPALIVE
+void dsos_set_named(const char *json)
+{
+    named_dso_t *e, *tmp;
+    json_value *root, *item;
+    int i;
+    const char *name, *alias;
+
+    if (!g_dsos) return;
+    HASH_ITER(hh, g_dsos->named, e, tmp) {
+        HASH_DEL(g_dsos->named, e);
+        free(e->name);
+        free(e->alias);
+        free(e);
+    }
+    if (!json || !json[0]) return;
+    root = json_parse(json, strlen(json));
+    if (!root) return;
+    if (root->type != json_array) {
+        json_value_free(root);
+        return;
+    }
+    for (i = 0; i < (int)root->u.array.length; i++) {
+        item = root->u.array.values[i];
+        name = json_get_attr_s(item, "name");
+        alias = json_get_attr_s(item, "alias");
+        if (!name || !name[0] || !alias || !alias[0]) continue;
+        HASH_FIND_STR(g_dsos->named, name, e);
+        if (e) continue; // dedupe: first alias wins
+        e = calloc(1, sizeof(*e));
+        e->name = strdup(name);
+        e->alias = strdup(alias);
+        HASH_ADD_KEYPTR(hh, g_dsos->named, e->name, strlen(e->name), e);
+    }
+    json_value_free(root);
+}
+
+// Toggle sky rendering of sold-DSO aliases (badge switch).
+EMSCRIPTEN_KEEPALIVE
+void dsos_set_named_visible(bool v)
+{
+    if (!g_dsos) return;
+    g_dsos->named_visible = v;
+}
 
 static uint64_t pix_to_nuniq(int order, int pix)
 {
@@ -485,11 +585,20 @@ static void dso_render_label(const dso_t *s,
     const bool selected = (&s->obj == core->selection);
     int effects = 0;
     double color[4], radius;
+    double size = FONT_SIZE_BASE - 2;
+    double priority;
     char buf[128] = "";
     const float vmag = s->display_vmag;
+    const char *alias = dso_get_named_alias(s);
 
     effects = TEXT_BOLD | TEXT_FLOAT;
-    if (selected) {
+    if (alias) {
+        // Sold-DSO alias: own vivid colour, larger, wins label collisions;
+        // keeps its colour even when selected so it stays distinct.
+        dso_alias_color(alias, color);
+        effects &= ~TEXT_FLOAT;
+        size = FONT_SIZE_BASE * 1.2;
+    } else if (selected) {
         vec4_set(color, 1, 1, 1, 1);
         effects &= ~TEXT_FLOAT;
     } else {
@@ -499,11 +608,15 @@ static void dso_render_label(const dso_t *s,
                   fabs(cos(win_angle)) *
                   fabs(win_size[0] / 2 - win_size[1] / 2);
     radius += 1;
-    dso_get_short_name(s, buf, sizeof(buf), longer_label);
+    if (alias)
+        snprintf(buf, sizeof(buf), "%s", alias);
+    else
+        dso_get_short_name(s, buf, sizeof(buf), longer_label);
+    priority = alias ? (100.0 - vmag) : -vmag;
     if (buf[0]) {
         labels_add_3d(buf, FRAME_ASTROM, s->bounding_cap, true, radius,
-                      FONT_SIZE_BASE - 2, color, 0, 0, effects,
-                      -vmag, &s->obj);
+                      size, color, 0, 0, effects,
+                      priority, &s->obj);
     }
 }
 
@@ -519,12 +632,16 @@ static int dso_render_from_data(const dso_t *s,
     painter_t tmp_painter;
     const float vmag = s->display_vmag;
     const double hints_mag_offset = g_dsos->hints_mag_offset - 0.8;
+    // Sold-DSO alias: like a selected object, bypass the magnitude/hints gates
+    // so the alias label is always drawn while the named layer is visible.
+    const char *alias = dso_get_named_alias(s);
 
     hints_limit_mag = painter->hints_limit_mag - 0.5 + hints_mag_offset;
 
     // Allow to select DSO a bit fainter than the faintest star
     // as they tend to be more visible as they are extended objects.
-    if (vmag > painter->stars_limit_mag + 1.5 || vmag > painter->hard_limit_mag)
+    if (!alias && (vmag > painter->stars_limit_mag + 1.5 ||
+                   vmag > painter->hard_limit_mag))
         return 1;
 
     // Check that it's intersecting with current viewport
@@ -545,7 +662,7 @@ static int dso_render_from_data(const dso_t *s,
         hints_limit_mag = painter->stars_limit_mag - 10 + hints_mag_offset;
     }
 
-    if (selected)
+    if (selected || alias)
         hints_limit_mag = 99;
 
     if (vmag > hints_limit_mag + 2)
@@ -569,7 +686,7 @@ static int dso_render_from_data(const dso_t *s,
     if (painter->color[3] < 0.01 && !selected)
         return 0;
 
-    if (!g_dsos->hints_visible)
+    if (!g_dsos->hints_visible && !alias)
         return 0;
 
     if (vmag <= hints_limit_mag + 0.5) {

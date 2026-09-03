@@ -525,7 +525,7 @@
 <script type="module">
 // 引擎 js/wasm 走 immutable 强缓存，同名覆盖老 App 拿不到新引擎；更新引擎务必递增
 // 此版本号（与 wasmFile 保持一致）强制 WebView 重取。v20260703：cardinal 默认隐藏修复。
-import StelWebEngine from './stellarium-web-engine.js?v=20260903';
+import StelWebEngine from './stellarium-web-engine.js?v=20260904';
 // ========================================
 // 循迹繁星嵌入版引擎 — JS Bridge API
 // ========================================
@@ -1208,15 +1208,29 @@ window._xjReloadSoldStars = async function() {
     if (!resp.ok) return;
     var body = await resp.json();
     var list = (body && body.data) ? body.data : [];
-    var named = [];
+    // 三路分发：有 HIP 的恒星按 hip；无 HIP 的暗星按 gaia（字符串，64 位防精度丢失）；
+    // DSO（如 NGC 404）按名称进 dsos 表。后端未给 hip 时兜底从 primaryName 解析。
+    var named = [], namedDsos = [];
     for (var i = 0; i < list.length; i++) {
-      var m = /HIP\s+(\d+)/i.exec(list[i].primaryName || '');
-      if (!m) continue;
-      named.push({ hip: parseInt(m[1], 10), alias: list[i].alias });
+      var r = list[i];
+      if (!r.alias) continue;
+      if (r.model === 'dso') {
+        namedDsos.push({ name: r.primaryName, alias: r.alias });
+        continue;
+      }
+      var hip = r.hip;
+      if (!hip) {
+        var m = /HIP\s+(\d+)/i.exec(r.primaryName || '');
+        if (m) hip = parseInt(m[1], 10);
+      }
+      if (hip) named.push({ hip: hip, alias: r.alias });
+      else if (r.gaia) named.push({ gaia: String(r.gaia), alias: r.alias });
     }
     XingJi._stel.starsSetNamed(JSON.stringify(named));
+    if (XingJi._stel.dsosSetNamed) XingJi._stel.dsosSetNamed(JSON.stringify(namedDsos));
     var showAlias = !(window._xjIsPureMode && window._xjIsPureMode());
     XingJi._stel.starsSetNamedVisible(showAlias);
+    if (XingJi._stel.dsosSetNamedVisible) XingJi._stel.dsosSetNamedVisible(showAlias);
   } catch (e) { /* 网络/解析失败静默：星图仍可用，仅无别名 */ }
 };
 
@@ -1235,6 +1249,8 @@ window._xjRefreshAfterBadgeToggle = function() {
   var showAlias = !(window._xjIsPureMode && window._xjIsPureMode());
   if (XingJi._stel && XingJi._stel.starsSetNamedVisible)
     XingJi._stel.starsSetNamedVisible(showAlias);
+  if (XingJi._stel && XingJi._stel.dsosSetNamedVisible)
+    XingJi._stel.dsosSetNamedVisible(showAlias);
   if (window._xjReloadSoldStars) window._xjReloadSoldStars();
   var sel = XingJi._stel && XingJi._stel.core.selection;
   var popup = document.getElementById('object-popup');
@@ -1531,7 +1547,7 @@ if (!XingJi._apiBaseUrl) {
 
 // === 引擎初始化 ===
 StelWebEngine({
-  wasmFile: 'stellarium-web-engine.wasm?v=20260903',  // 版本号须与上方 import 一致
+  wasmFile: 'stellarium-web-engine.wasm?v=20260904',  // 版本号须与上方 import 一致
   canvas: document.getElementById('stel-canvas'),
   translateFn: function(domain, str) {
     if (!str) return str;

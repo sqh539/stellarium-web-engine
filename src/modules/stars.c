@@ -46,6 +46,14 @@ typedef struct named_star {
     UT_hash_handle  hh;
 } named_star_t;
 
+// Sold/named star alias entry keyed by Gaia source id, for stars that have no
+// HIP number (only rendered by the gaia survey, where star_t.hip == 0).
+typedef struct named_gaia {
+    uint64_t        gaia;   // key
+    char            *alias;
+    UT_hash_handle  hh;
+} named_gaia_t;
+
 typedef struct survey survey_t;
 struct survey {
     stars_t *stars;
@@ -73,6 +81,7 @@ struct stars {
     bool            hints_visible;
     // Sold/named stars: hip -> alias hash + visibility gate (fed at runtime).
     named_star_t    *named;
+    named_gaia_t    *named_gaia;   // gaia id -> alias, for non-HIP stars
     bool            named_visible;
 };
 
@@ -280,31 +289,49 @@ static bool star_get_skycultural_name(const star_t *s, char *out, int size)
 }
 
 // Return the sold-star alias for this star if the named layer is visible
-// and its HIP is in the table; NULL otherwise.
+// and its HIP (or, for HIP-less stars, its Gaia id) is in the table;
+// NULL otherwise.
 static const char *star_get_named_alias(const star_t *s)
 {
     named_star_t *e;
-    if (!g_stars || !g_stars->named_visible || s->hip == 0) return NULL;
-    HASH_FIND_INT(g_stars->named, &s->hip, e);
-    return e ? e->alias : NULL;
+    named_gaia_t *g;
+    if (!g_stars || !g_stars->named_visible) return NULL;
+    if (s->hip != 0) {
+        HASH_FIND_INT(g_stars->named, &s->hip, e);
+        if (e) return e->alias;
+    }
+    if (s->gaia != 0) {
+        HASH_FIND(hh, g_stars->named_gaia, &s->gaia, sizeof(s->gaia), g);
+        if (g) return g->alias;
+    }
+    return NULL;
 }
 
-// Feed the sold-star alias table. json: [{"hip":61384,"alias":"..."}].
+// Feed the sold-star alias table. json: [{"hip":61384,"alias":"..."}] or,
+// for HIP-less stars, [{"gaia":"793473977912884608","alias":"..."}] — the
+// Gaia id is passed as a string because it exceeds JS's safe integer range.
 // Replaces any existing table.
 EMSCRIPTEN_KEEPALIVE
 void stars_set_named(const char *json)
 {
     named_star_t *e, *tmp;
+    named_gaia_t *g, *gtmp;
     json_value *root, *item;
     int i, hip;
-    const char *alias;
+    uint64_t gaia;
+    const char *alias, *gaia_str;
 
     if (!g_stars) return;
-    // Clear existing table.
+    // Clear existing tables.
     HASH_ITER(hh, g_stars->named, e, tmp) {
         HASH_DEL(g_stars->named, e);
         free(e->alias);
         free(e);
+    }
+    HASH_ITER(hh, g_stars->named_gaia, g, gtmp) {
+        HASH_DEL(g_stars->named_gaia, g);
+        free(g->alias);
+        free(g);
     }
     if (!json || !json[0]) return;
     root = json_parse(json, strlen(json));
@@ -315,15 +342,28 @@ void stars_set_named(const char *json)
     }
     for (i = 0; i < (int)root->u.array.length; i++) {
         item = root->u.array.values[i];
-        hip = json_get_attr_i(item, "hip", 0);
         alias = json_get_attr_s(item, "alias");
-        if (hip == 0 || !alias || !alias[0]) continue;
-        HASH_FIND_INT(g_stars->named, &hip, e);
-        if (e) continue; // dedupe: first alias wins
-        e = calloc(1, sizeof(*e));
-        e->hip = hip;
-        e->alias = strdup(alias);
-        HASH_ADD_INT(g_stars->named, hip, e);
+        if (!alias || !alias[0]) continue;
+        hip = json_get_attr_i(item, "hip", 0);
+        if (hip != 0) {
+            HASH_FIND_INT(g_stars->named, &hip, e);
+            if (e) continue; // dedupe: first alias wins
+            e = calloc(1, sizeof(*e));
+            e->hip = hip;
+            e->alias = strdup(alias);
+            HASH_ADD_INT(g_stars->named, hip, e);
+            continue;
+        }
+        gaia_str = json_get_attr_s(item, "gaia");
+        if (!gaia_str || !gaia_str[0]) continue;
+        gaia = strtoull(gaia_str, NULL, 10);
+        if (gaia == 0) continue;
+        HASH_FIND(hh, g_stars->named_gaia, &gaia, sizeof(gaia), g);
+        if (g) continue;
+        g = calloc(1, sizeof(*g));
+        g->gaia = gaia;
+        g->alias = strdup(alias);
+        HASH_ADD(hh, g_stars->named_gaia, gaia, sizeof(g->gaia), g);
     }
     json_value_free(root);
 }
