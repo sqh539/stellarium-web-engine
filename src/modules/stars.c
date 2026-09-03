@@ -39,6 +39,13 @@ typedef struct {
     char    *sp_type;
 } star_t;
 
+// Sold/named star alias entry, keyed by HIP number.
+typedef struct named_star {
+    int             hip;    // key
+    char            *alias;
+    UT_hash_handle  hh;
+} named_star_t;
+
 typedef struct survey survey_t;
 struct survey {
     stars_t *stars;
@@ -64,6 +71,9 @@ struct stars {
     // Hints/labels magnitude offset
     double          hints_mag_offset;
     bool            hints_visible;
+    // Sold/named stars: hip -> alias hash + visibility gate (fed at runtime).
+    named_star_t    *named;
+    bool            named_visible;
 };
 
 // Static instance.
@@ -269,6 +279,63 @@ static bool star_get_skycultural_name(const star_t *s, char *out, int size)
     return name != NULL;
 }
 
+// Return the sold-star alias for this star if the named layer is visible
+// and its HIP is in the table; NULL otherwise.
+static const char *star_get_named_alias(const star_t *s)
+{
+    named_star_t *e;
+    if (!g_stars || !g_stars->named_visible || s->hip == 0) return NULL;
+    HASH_FIND_INT(g_stars->named, &s->hip, e);
+    return e ? e->alias : NULL;
+}
+
+// Feed the sold-star alias table. json: [{"hip":61384,"alias":"..."}].
+// Replaces any existing table.
+EMSCRIPTEN_KEEPALIVE
+void stars_set_named(const char *json)
+{
+    named_star_t *e, *tmp;
+    json_value *root, *item;
+    int i, hip;
+    const char *alias;
+
+    if (!g_stars) return;
+    // Clear existing table.
+    HASH_ITER(hh, g_stars->named, e, tmp) {
+        HASH_DEL(g_stars->named, e);
+        free(e->alias);
+        free(e);
+    }
+    if (!json || !json[0]) return;
+    root = json_parse(json, strlen(json));
+    if (!root) return;
+    if (root->type != json_array) {
+        json_value_free(root);
+        return;
+    }
+    for (i = 0; i < (int)root->u.array.length; i++) {
+        item = root->u.array.values[i];
+        hip = json_get_attr_i(item, "hip", 0);
+        alias = json_get_attr_s(item, "alias");
+        if (hip == 0 || !alias || !alias[0]) continue;
+        HASH_FIND_INT(g_stars->named, &hip, e);
+        if (e) continue; // dedupe: first alias wins
+        e = calloc(1, sizeof(*e));
+        e->hip = hip;
+        e->alias = strdup(alias);
+        HASH_ADD_INT(g_stars->named, hip, e);
+    }
+    json_value_free(root);
+}
+
+// Toggle sky rendering of sold-star aliases (badge switch).
+EMSCRIPTEN_KEEPALIVE
+void stars_set_named_visible(bool v)
+{
+    if (!g_stars) return;
+    g_stars->named_visible = v;
+}
+
 
 static bool name_is_bayer(const char* name) {
     return strncmp(name, "* ", 2) == 0 || strncmp(name, "V* ", 3) == 0;
@@ -308,12 +375,36 @@ static bool star_get_bayer_name(const star_t *s, char *out, int size,
 }
 
 
+// Vivid per-star colour for sold-star alias labels, so they stand out from
+// native (constellation/catalogue) names. Hue is spread by the golden angle
+// from the HIP number, so neighbouring stars get clearly different colours;
+// moderate saturation + full value keeps it bright and dreamy, not garish.
+static void star_alias_color(int hip, double out[4])
+{
+    const double h = fmod(hip * 137.508, 360.0) / 60.0; // 0..6 sectors
+    const double sat = 0.55, val = 1.0;
+    const double c = val * sat;
+    const double x = c * (1.0 - fabs(fmod(h, 2.0) - 1.0));
+    const double m = val - c;
+    double r = 0, g = 0, b = 0;
+    switch ((int)h) {
+    case 0:  r = c; g = x; break;
+    case 1:  r = x; g = c; break;
+    case 2:  g = c; b = x; break;
+    case 3:  g = x; b = c; break;
+    case 4:  r = x; b = c; break;
+    default: r = c; b = x; break;
+    }
+    out[0] = r + m; out[1] = g + m; out[2] = b + m; out[3] = 1.0;
+}
+
 static void star_render_name(const painter_t *painter, const star_t *s,
                              int frame, const double pos[3],
                              const double win_pos[2], double radius,
                              double color[3])
 {
     double label_color[4] = {color[0], color[1], color[2], 0.8};
+    double size = FONT_SIZE_BASE;
     static const double white[4] = {1, 1, 1, 1};
     const bool selected = (&s->obj == core->selection);
     int effects = TEXT_FLOAT;
@@ -327,49 +418,65 @@ static void star_render_name(const painter_t *painter, const star_t *s,
     double lim_mag2 = painter->hints_limit_mag - 7.5 + hints_mag_offset;
     double lim_mag3 = painter->hints_limit_mag - 9.0 + hints_mag_offset;
 
+    // Sold-star alias: bypass the brightness gate and skyculture name lookup.
+    const char *alias = star_get_named_alias(s);
+
     // Decide whether a label must be displayed
-    if (!selected && s->vmag > lim_mag)
+    if (!selected && !alias && s->vmag > lim_mag)
         return;
 
     buf[0] = 0;
 
-    // Display the current skyculture's star name
-    star_get_skycultural_name(s, buf, sizeof(buf));
+    if (alias) {
+        snprintf(buf, sizeof(buf), "%s", alias);
+        // Alias labels: own vivid colour, bold, slightly larger than native
+        // names so sold stars read as "special" at a glance.
+        star_alias_color(s->hip, label_color);
+        effects = TEXT_BOLD;
+        size = FONT_SIZE_BASE * 1.2;
+    } else {
+        // Display the current skyculture's star name
+        star_get_skycultural_name(s, buf, sizeof(buf));
 
-    // Without international fallback, just stop here if we didn't find a name
-    if (!buf[0] && !skycultures_fallback_to_international_names())
-        return;
+        // Without international fallback, stop here if we didn't find a name
+        if (!buf[0] && !skycultures_fallback_to_international_names())
+            return;
 
-    first_name = s->names && s->names[0] ? s->names : NULL;
+        first_name = s->names && s->names[0] ? s->names : NULL;
 
-    // Fallback to international common names/bayer names
-    if (first_name && !buf[0]) {
-        if (selected || s->vmag < fmax(3, lim_mag2)) {
-            // The star is quite bright or selected, displat a name
-            if (selected || s->vmag < fmax(3, lim_mag3)) {
-                // Use long version of bayer name for very bright stars
-                flags |= BAYER_LATIN_LONG | BAYER_CONST_LONG;
+        // Fallback to international common names/bayer names
+        if (first_name && !buf[0]) {
+            if (selected || s->vmag < fmax(3, lim_mag2)) {
+                // The star is quite bright or selected, display a name
+                if (selected || s->vmag < fmax(3, lim_mag3)) {
+                    // Use long version of bayer name for very bright stars
+                    flags |= BAYER_LATIN_LONG | BAYER_CONST_LONG;
+                }
+                designation_cleanup(first_name, buf, sizeof(buf), flags);
+            } else {
+                // Not selected and not very bright: small form of bayer name.
+                star_get_bayer_name(s, buf, sizeof(buf), flags);
             }
-            designation_cleanup(first_name, buf, sizeof(buf), flags);
-        } else {
-            // From here we know the star is not selected and not very bright
-            // just display the small form of bayer name to save space.
-            star_get_bayer_name(s, buf, sizeof(buf), flags);
         }
+
+        if (!buf[0]) return;
     }
 
-    if (!buf[0]) return;
-
-    if (selected) {
+    // Selected native star goes white+bold; an alias keeps its own colour
+    // even when selected so it stays visually distinct.
+    if (selected && !alias) {
         vec4_copy(white, label_color);
         effects = TEXT_BOLD;
     }
     radius += LABEL_SPACING;
 
+    // Named/sold stars win label collisions over ordinary stars.
+    double priority = alias ? (100.0 - s->vmag) : -s->vmag;
+
     u8_split_line(buf, sizeof(buf), buf, 16);
     labels_add_3d(buf, frame, pos, true,
-                 radius, FONT_SIZE_BASE, label_color, 0, 0,
-                 effects | TEXT_MULTILINES, -s->vmag, &s->obj);
+                 radius, size, label_color, 0, 0,
+                 effects | TEXT_MULTILINES, priority, &s->obj);
 }
 
 // Render a single star.
@@ -701,7 +808,8 @@ static int render_visitor(stars_t *stars, survey_t *survey,
         };
         n++;
         selected = (&s->obj == core->selection);
-        if (selected || (stars->hints_visible && !survey->is_gaia))
+        if (selected || star_get_named_alias(s) ||
+                (stars->hints_visible && !survey->is_gaia))
             star_render_name(&painter, s, FRAME_ASTROM, v, p_win, size, color);
     }
     if (n > 0) {

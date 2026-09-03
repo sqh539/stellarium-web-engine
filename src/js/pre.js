@@ -261,6 +261,24 @@ Module['designationCleanup'] = function(d, flags) {
   return ret;
 }
 
+Module['starsSetNamed'] = function(json) {
+  // Marshal the JSON on the heap, not via cwrap's 'string' arg type — the
+  // latter uses stack allocation (stackAlloc), so a full sold-star table
+  // (~600KB for 15527 entries) overflows the wasm stack. Heap _malloc scales.
+  const str = json || '[]';
+  const size = Module.lengthBytesUTF8(str) + 1;
+  const ptr = Module._malloc(size);
+  Module.stringToUTF8(str, ptr, size);
+  const f = Module.cwrap('stars_set_named', null, ['number']);
+  f(ptr);
+  Module._free(ptr);
+};
+
+Module['starsSetNamedVisible'] = function(visible) {
+  const f = Module.cwrap('stars_set_named_visible', null, ['number']);
+  f(visible ? 1 : 0);
+};
+
 Module['c2s'] = function(v) {
   var x = v[0];
   var y = v[1];

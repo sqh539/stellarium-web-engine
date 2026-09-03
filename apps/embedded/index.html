@@ -467,6 +467,10 @@
     <span class="t-icon"><svg viewBox="0 0 24 24"><circle cx="5" cy="5" r="1.5" fill="currentColor" stroke="none"/><circle cx="19" cy="8" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r="1.5" fill="currentColor" stroke="none"/><path d="M5 5l14 3M19 8l-7 11M12 19L5 5"/></svg></span>
     <span class="t-label">星座</span>
   </button>
+  <button class="sky-toggle" data-key="constellations-all" title="显示全部星座">
+    <span class="t-icon"><svg viewBox="0 0 24 24"><circle cx="4" cy="6" r="1.2" fill="currentColor" stroke="none"/><circle cx="9" cy="4" r="1.2" fill="currentColor" stroke="none"/><circle cx="8" cy="9" r="1.2" fill="currentColor" stroke="none"/><path d="M4 6l5-2M9 4l-1 5"/><circle cx="16" cy="15" r="1.2" fill="currentColor" stroke="none"/><circle cx="21" cy="13" r="1.2" fill="currentColor" stroke="none"/><circle cx="19" cy="20" r="1.2" fill="currentColor" stroke="none"/><path d="M16 15l5-2M21 13l-2 7M19 20l-3-5"/></svg></span>
+    <span class="t-label">全部星座</span>
+  </button>
   <button class="sky-toggle" data-key="constellation-art" title="星座艺术图">
     <span class="t-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></span>
     <span class="t-label">艺术图</span>
@@ -521,7 +525,7 @@
 <script type="module">
 // 引擎 js/wasm 走 immutable 强缓存，同名覆盖老 App 拿不到新引擎；更新引擎务必递增
 // 此版本号（与 wasmFile 保持一致）强制 WebView 重取。v20260703：cardinal 默认隐藏修复。
-import StelWebEngine from './stellarium-web-engine.js?v=20260703';
+import StelWebEngine from './stellarium-web-engine.js?v=20260903';
 // ========================================
 // 循迹繁星嵌入版引擎 — JS Bridge API
 // ========================================
@@ -568,8 +572,14 @@ const XingJi = {
   },
 
   async _startGyro() {
-    // iOS 13+ 需要请求权限
-    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+    // 原生方位模式：宿主 App（iOS）已用原生 CoreMotion/罗盘取方位并通过
+    // window.setNativeOrientation 注入，网页无需 DeviceOrientationEvent，
+    // 从而跳过 iOS Safari/WebView 的「动作与方向」权限弹窗。标志由 App 在
+    // web-view 挂载后 evalJS 置位（见 xingji-app sky/index.vue）。
+    var nativeMode = !!window.__xjNativeOrient;
+
+    // 网页模式下 iOS 13+ 需请求权限（会弹「动作与方向」框）；原生模式跳过
+    if (!nativeMode && typeof DeviceOrientationEvent.requestPermission === 'function') {
       try {
         var permission = await DeviceOrientationEvent.requestPermission();
         if (permission !== 'granted') {
@@ -648,10 +658,16 @@ const XingJi = {
       self._stel.core.observer.yaw = smoothYaw;
       self._stel.core.observer.pitch = smoothPitch;
     };
-    // Android Chrome 上 deviceorientation 的 alpha 是相对的；用 absolute 版才参考真磁北
-    this._gyroEvent = ('ondeviceorientationabsolute' in window)
-      ? 'deviceorientationabsolute' : 'deviceorientation';
-    window.addEventListener(this._gyroEvent, this._gyroHandler, true);
+    if (nativeMode) {
+      // 原生模式：方位样本由宿主 App 通过 window.setNativeOrientation 驱动 _gyroHandler，
+      // 不挂网页 deviceorientation 监听（iOS 该事件本就需权限框，正是要绕开的）。
+      this._gyroNative = true;
+    } else {
+      // Android Chrome 上 deviceorientation 的 alpha 是相对的；用 absolute 版才参考真磁北
+      this._gyroEvent = ('ondeviceorientationabsolute' in window)
+        ? 'deviceorientationabsolute' : 'deviceorientation';
+      window.addEventListener(this._gyroEvent, this._gyroHandler, true);
+    }
 
     // 陀螺仪开启时：完全拦截 canvas 上的 touch 事件（避免引擎把双指中心位置当作 pan 拖动导致弹跳）
     // 双指 pinch 缩放由本 JS 层根据手指间距变化直接改写 stel.core.fov 实现
@@ -704,9 +720,13 @@ const XingJi = {
 
   _stopGyro() {
     if (this._gyroHandler) {
-      window.removeEventListener(this._gyroEvent || 'deviceorientation', this._gyroHandler, true);
+      // 原生模式没挂网页监听，removeEventListener 无副作用；网页模式正常摘除
+      if (!this._gyroNative) {
+        window.removeEventListener(this._gyroEvent || 'deviceorientation', this._gyroHandler, true);
+      }
       this._gyroHandler = null;
     }
+    this._gyroNative = false;
     if (this._gyroTouchBlocker) {
       var canvas = document.getElementById('stel-canvas');
       var opts = { capture: true };
@@ -1179,6 +1199,31 @@ function showObjectPopup(obj) {
   }, 2000);
 }
 
+// 拉取全部已售星别名表，喂进引擎；随后按当前开关设 visible。
+window._xjReloadSoldStars = async function() {
+  try {
+    if (!XingJi._stel || !XingJi._stel.starsSetNamed) return;
+    var url = XingJi._apiBaseUrl + '/api/v1/star-naming/sold-stars';
+    var resp = await fetch(url);
+    if (!resp.ok) return;
+    var body = await resp.json();
+    var list = (body && body.data) ? body.data : [];
+    var named = [];
+    for (var i = 0; i < list.length; i++) {
+      var m = /HIP\s+(\d+)/i.exec(list[i].primaryName || '');
+      if (!m) continue;
+      named.push({ hip: parseInt(m[1], 10), alias: list[i].alias });
+    }
+    XingJi._stel.starsSetNamed(JSON.stringify(named));
+    var showAlias = !(window._xjIsPureMode && window._xjIsPureMode());
+    XingJi._stel.starsSetNamedVisible(showAlias);
+  } catch (e) { /* 网络/解析失败静默：星图仍可用，仅无别名 */ }
+};
+
+document.addEventListener('visibilitychange', function() {
+  if (!document.hidden && window._xjReloadSoldStars) window._xjReloadSoldStars();
+});
+
 // 星体铭牌开关切换后调用：清弹窗缓存并按新的纯净模式状态刷新当前卡片。
 // _apiCache/_pendingApiData 按天体名缓存、不含 pure 状态，首次取数据时的 pure 状态会被
 // 焊死；不清缓存会导致「关开关后已看过的星仍显示别名」，开关像失效。本函数挂在 window 上
@@ -1186,6 +1231,11 @@ function showObjectPopup(obj) {
 window._xjRefreshAfterBadgeToggle = function() {
   _apiCache = {};
   _pendingApiData = null;
+  // 星空别名：同步切 visible（即时响应），再异步重拉表（拾取后台新增星）
+  var showAlias = !(window._xjIsPureMode && window._xjIsPureMode());
+  if (XingJi._stel && XingJi._stel.starsSetNamedVisible)
+    XingJi._stel.starsSetNamedVisible(showAlias);
+  if (window._xjReloadSoldStars) window._xjReloadSoldStars();
   var sel = XingJi._stel && XingJi._stel.core.selection;
   var popup = document.getElementById('object-popup');
   if (sel && popup && popup.classList.contains('show')) {
@@ -1409,6 +1459,21 @@ function addStat(parent, label, value, unit) {
 // 暴露全局 API
 window.XingJi = XingJi;
 
+// 宿主 App 原生方位注入入口（iOS 绕过网页「动作与方向」权限框）。
+// App 侧用 CoreMotion 取 alpha/beta/gamma + 罗盘取真北方位角，evalJS 高频调用此函数。
+// alpha/beta/gamma 语义同 DeviceOrientationEvent；heading 为真北顺时针方位角(0-360)，
+// 无罗盘数据时传 null → 退化为相对参考系（由 _gyroHandler 的 iOS 分支慢速锚定校正）。
+// 仅在陀螺仪开启时驱动视角；关闭时静默丢弃样本。
+window.setNativeOrientation = function(alpha, beta, gamma, heading) {
+  if (!XingJi._gyroEnabled || !XingJi._gyroHandler) return;
+  XingJi._gyroHandler({
+    alpha: alpha,
+    beta: beta,
+    gamma: gamma,
+    webkitCompassHeading: (typeof heading === 'number' && heading >= 0) ? heading : undefined
+  });
+};
+
 // 嵌入模式：通过 URL 参数或 iframe 检测，为宿主预留安全区域
 (function() {
   var params = new URLSearchParams(window.location.search);
@@ -1466,7 +1531,7 @@ if (!XingJi._apiBaseUrl) {
 
 // === 引擎初始化 ===
 StelWebEngine({
-  wasmFile: 'stellarium-web-engine.wasm?v=20260703',  // 版本号须与上方 import 一致
+  wasmFile: 'stellarium-web-engine.wasm?v=20260903',  // 版本号须与上方 import 一致
   canvas: document.getElementById('stel-canvas'),
   translateFn: function(domain, str) {
     if (!str) return str;
@@ -1482,6 +1547,7 @@ StelWebEngine({
   },
   onReady: function(stel) {
     XingJi._stel = stel;
+    if (window._xjReloadSoldStars) window._xjReloadSoldStars();
     var core = stel.core;
 
     // 保底：手动注册翻译回调（pre.js 的自动注册时序有时拿不到 Module.translateFn）
@@ -1513,6 +1579,11 @@ StelWebEngine({
 
     // 加载基础星表数据
     core.stars.addDataSource({ url: 'skydata/stars' });
+    // Gaia DR2 暗星层（≤7 等由上面亮星瓦片负责，Gaia 补 7 等以下）。
+    //   key:'gaia' → 引擎标记 is_gaia，自动把本层 min_vmag 抬到亮星 survey 的 max_vmag(7.0)，
+    //   渲染时跳过 <7.0 的星避免重叠（stars.c:531）。hips_order_min=3，纯按需懒加载。
+    //   瓦片：Stellarium 官方 gaia survey（.eph FILE_VERSION=2 + GAIA chunk，引擎原生兼容）本地镜像。
+    core.stars.addDataSource({ url: 'skydata/gaia', key: 'gaia' });
     core.dsos.addDataSource({ url: 'skydata/dso' });
 
     // 银河背景：本地赤道系 HiPS（hips_frame=equatorial），与星表严格对齐。
@@ -1546,6 +1617,7 @@ StelWebEngine({
     // === 底部工具栏控制 ===
     var toolbarConfig = {
       'constellations':     function() { return core.constellations.lines_visible; },
+      'constellations-all': function() { return !core.constellations.show_only_pointed; },
       'constellation-art':  function() { return core.constellations.images_visible; },
       'atmosphere':         function() { return core.atmosphere.visible; },
       'landscape':          function() { return core.landscapes.visible; },
@@ -1556,6 +1628,16 @@ StelWebEngine({
     };
     var toolbarSetters = {
       'constellations':     function(v) { core.constellations.lines_visible = v; core.constellations.labels_visible = v; },
+      // 「全部星座」：show_only_pointed=false 时视野内所有星座同时显示；开启时顺带确保星座线可见
+      'constellations-all': function(v) {
+        core.constellations.show_only_pointed = !v;
+        if (v && !core.constellations.lines_visible) {
+          core.constellations.lines_visible = true;
+          core.constellations.labels_visible = true;
+          var b = document.querySelector('.sky-toggle[data-key="constellations"]');
+          if (b) b.classList.add('on');
+        }
+      },
       'constellation-art':  function(v) { core.constellations.images_visible = v; },
       'atmosphere':         function(v) { core.atmosphere.visible = v; },
       'landscape':          function(v) { core.landscapes.visible = v; },
@@ -1713,7 +1795,11 @@ StelWebEngine({
     // 中文 fallback：关键路径，必须确保字节完整再 setFont，否则负缓存/污染致全空白。
     // 版本号 v6→v7：让所有客户端丢弃可能已损坏的 v6 缓存条目，立即恢复现网用户。
     // v7→v8：新增 110 个梅西耶天体中文名（67 个新汉字），需刷新子集字体缓存。
-    var ZH_FONT_URL = 'fonts/zhfont.ttf?v=8';
+    // v8→v11：并入现有全部字源 + 当前生产全部已售星别名用字（62 字，含繁体「戶」）+ 常用姓名字
+    //        兜底，现有名字 100% 覆盖，~382KB。注：曾试过 GB2312 全字集(~3.2MB)，但大字体 setFont
+    //        的 _malloc 在生产慢加载时序下触发 WASM 内存增长→detach HEAP 视图→OOB 崩溃(本地复现不出)，
+    //        故回到与旧版同量级的小字体；后台新增含全新生僻字的名字时重新子集化即可。
+    var ZH_FONT_URL = 'fonts/zhfont.ttf?v=11';
     // 单次中文字体加载：per-attempt 缩短到 3.5s，让偶发的挂起/失败快速触发原地重试。
     function loadZhFontOnce(forceReload) {
       return primeFont(ZH_FONT_URL, forceReload, 3500).then(function() {
